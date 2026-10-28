@@ -16,6 +16,7 @@ cargo build --locked --release --no-default-features --target aarch64-unknown-li
 if [[ $(uname -m) = aarch64 || -n ${CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUNNER:-} ]]; then
     cargo test --locked --release --no-default-features --target aarch64-unknown-linux-gnu -p xodus-cli
     cargo test --locked --release --no-default-features --target aarch64-unknown-linux-gnu -p xodus credential_
+    cargo test --locked --release --no-default-features --target aarch64-unknown-linux-gnu -p xodus delegation_ticket_
     cargo test --locked --release --no-default-features --target aarch64-unknown-linux-gnu -p msixvc streaming_
 fi
 for binary in xodus-cli xodus-service; do

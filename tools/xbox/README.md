@@ -7,6 +7,12 @@ checksums. `runtime.lock.json` pins the Nexus Windows runtime release and each
 extracted PE DLL. `prepare.py` verifies both source revisions and all Nexus patch
 checksums before applying the local transport, launch and library patches.
 
+`droiddeck-xbox-jwe-ticket.patch` backports Nexus #414 to the pinned backend.
+Xbox sign-in uses `t=` for structurally valid compact JWE delegation tickets;
+opaque and malformed tickets retain `d=`. The JWE shape check comes from Nexus
+#294 and leaves the ticket payload unchanged. Account-free regression tests run
+as part of the native backend build.
+
 `droiddeck-cloud-token.patch` adds `xodus-cli cloud-token`: the stored account's
 Xbox Cloud Gaming sign-in (XSTS for `http://gssv.xboxlive.com/`, then the streaming
 service's `/v2/login/user`) and the login proof token a session's `/connect` step
