@@ -35,6 +35,13 @@ class GogMaintenance(unittest.TestCase):
         with self.assertRaises(ValueError):
             G["validate_installer"](self.folder, patch)
 
+    def test_only_recognized_inno_installers_get_the_gog_ui_compatibility_argument(self):
+        path = self.folder / "patch.exe"
+        path.write_bytes(b"MZunknown installer")
+        self.assertEqual([], G["installer_arguments"](path))
+        path.write_bytes(b"MZdata Inno Setup Setup Data (6.2.1)")
+        self.assertEqual(["/NOGUI"], G["installer_arguments"](path))
+
     def test_game_launch_lease_excludes_updater_and_releases_on_owner_exit(self):
         import fcntl
         owner = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
@@ -100,15 +107,38 @@ class GogMaintenance(unittest.TestCase):
             with self.assertRaises(ValueError):
                 G["start"](str(self.folder), "2147483666", "patch.exe", "game.exe")
 
+    def test_dead_installer_helper_requires_recovery_without_replay(self):
+        G["write"](self.control / "operation.json", {"phase": "patch-applying"})
+        G["write"](self.control / "patch-status.json", {"state": "running", "pid": 99999999, "generation": "123"})
+        with mock.patch.dict(G, {"generation": lambda pid: None}), mock.patch.object(G["subprocess"], "Popen") as spawn:
+            self.assertEqual(0, G["status"](str(self.folder)))
+        self.assertFalse(spawn.called)
+        self.assertEqual("uncertain", G["read"](self.control / "patch-status.json")["state"])
+        self.assertEqual("patch-uncertain", G["read"](self.control / "operation.json")["phase"])
+
+    def test_abandoned_start_and_confirmed_completion_are_distinct(self):
+        G["write"](self.control / "operation.json", {"phase": "patch-starting"})
+        G["write"](self.control / "patch-status.json", {"state": "starting", "startedAt": 10})
+        with mock.patch.object(G["time"], "time", return_value=100):
+            G["status"](str(self.folder))
+        self.assertEqual("uncertain", G["read"](self.control / "patch-status.json")["state"])
+        G["write"](self.control / "patch-status.json", {"state": "done", "exitCode": 0})
+        G["status"](str(self.folder))
+        self.assertEqual({"state": "done", "exitCode": 0}, G["read"](self.control / "patch-status.json"))
+
     def test_registry_and_installer_use_same_prefix_without_cloud_launch(self):
         download = self.control / "downloads"; download.mkdir()
         patch = download / "patch.exe"; patch.write_bytes(b"MZtest")
+        prefix = self.folder / "prefix/pfx"
+        (prefix / "drive_c/windows/system32").mkdir(parents=True)
+        (prefix / "drive_c/windows/system32/reg.exe").write_bytes(b"MZreg")
+        (prefix / "system.reg").write_text("registry")
         G["write"](self.control / "operation.json", {"phase": "patch-starting"})
         calls = []
         setup = {"main": lambda: None}
         def setup_main():
             pass
-        setup_main.__globals__["apply_gog_registry"] = lambda *a: calls.append(("registry", a[1]))
+        setup_main.__globals__["apply_gog_registry"] = lambda *a, **k: calls.append(("registry", a[1])) or "written=1"
         fake = mock.Mock(); fake.wait.return_value = 0
         def spawn(argv, **kwargs):
             self.assertEqual("run", argv[1])

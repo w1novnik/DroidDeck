@@ -159,6 +159,12 @@ def validate_installer(folder, installer):
     return path
 
 
+def installer_arguments(path):
+    with path.open("rb") as stream:
+        data = stream.read(4 * 1024 * 1024)
+    return ["/NOGUI"] if b"Inno Setup Setup Data" in data else []
+
+
 def start(folder, appid, installer, game):
     root = control(folder)
     validate_installer(folder, installer)
@@ -170,10 +176,26 @@ def start(folder, appid, installer, game):
         idle(folder, appid, game)
         journal["phase"] = "patch-starting"
         write(root / "operation.json", journal)
-        write(root / "patch-status.json", {"state": "starting"})
+        write(root / "patch-status.json", {"state": "starting", "startedAt": time.time()})
         with (root / "patch.log").open("ab") as log:
             subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "run", folder, appid, installer, game],
                              stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True, close_fds=True)
+    return 0
+
+
+def status(folder):
+    root = control(folder)
+    path = root / "patch-status.json"
+    result = read(path)
+    ended = result.get("state") == "running" and generation(result.get("pid")) != result.get("generation")
+    abandoned = result.get("state") == "starting" and time.time() - result.get("startedAt", 0) > 60
+    if ended or abandoned:
+        result = {"state": "uncertain", "reason": "The patch helper ended without a confirmed result; verify recovery before retrying"}
+        write(path, result)
+        journal = read(root / "operation.json")
+        journal["phase"] = "patch-uncertain"
+        write(root / "operation.json", journal)
+    print(json.dumps(result), flush=True)
     return 0
 
 
@@ -206,11 +228,18 @@ def run_patch(folder, appid, installer, game):
             previous = dict(os.environ)
             try:
                 os.environ.update(env)
-                setup["apply_gog_registry"](Path(folder), prefix, command)
+                pfx = Path(prefix) / "pfx"
+                if not (pfx / "system.reg").is_file() or not (pfx / "drive_c/windows/system32/reg.exe").is_file():
+                    subprocess.run([command, "run", "wineboot.exe", "-u"], env=env, timeout=90, check=True)
+                if not (pfx / "drive_c/windows/system32/reg.exe").is_file():
+                    raise ValueError("Proton did not initialize the game's registry tool")
+                result = setup["apply_gog_registry"](Path(folder), prefix, command, installation=journal.get("before"))
+                if result.startswith(("import-failed", "no-proton")):
+                    raise ValueError("GOG registry preparation failed; the patch was not applied")
                 prepare_setup(folder, command, env)
             finally:
                 os.environ.clear(); os.environ.update(previous)
-            proc = subprocess.Popen([command, "run", str(path)], cwd=str(path.parent), env=env)
+            proc = subprocess.Popen([command, "run", str(path), *installer_arguments(path)], cwd=str(path.parent), env=env)
             code = proc.wait()
             quiet_at = time.monotonic()
             while True:
@@ -252,6 +281,8 @@ def prepare_setup(folder, command, env):
             continue
         program = None
         if manifest.get("scriptInterpreter"):
+            if not (Path(folder) / ("goggame-%s.script" % product["productId"])).is_file():
+                continue
             program = Path(folder) / "support/__redist/ISI/scriptinterpreter.exe"
         elif product.get("temp_executable"):
             relative = product["temp_executable"].replace("\\", "/")
@@ -279,6 +310,8 @@ def main(argv):
         return lease(argv[1], int(argv[2]))
     if len(argv) == 4 and argv[0] == "idle":
         return idle(*argv[1:])
+    if len(argv) == 2 and argv[0] == "status":
+        return status(argv[1])
     if len(argv) == 5 and argv[0] == "start":
         return start(*argv[1:])
     if len(argv) == 5 and argv[0] == "run":

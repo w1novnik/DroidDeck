@@ -18,6 +18,14 @@ import java.util.concurrent.atomic.AtomicBoolean
 internal object GogOffline {
     private const val HELPER = "/usr/local/bin/droiddeck-gog-maintenance"
 
+    internal data class Layout(val source: File, val prefix: String)
+
+    internal fun layout(extracted: File, installed: File, id: String, executable: String): Layout {
+        val nested = executable.startsWith("app/", true) && !File(installed, "goggame-$id.info").isFile
+        val app = File(extracted, "app")
+        return if (app.isDirectory) Layout(if (nested) extracted else app, "") else Layout(extracted, if (nested) "app/" else "")
+    }
+
     private fun download(context: Context, proposal: GogMaintenance.Proposal, handle: DownloadQueue.JobHandle, stop: AtomicBoolean): File {
         val patch = proposal.patch ?: error("GOG download selection is missing")
         val root = File(GogFiles.dir(proposal.folder), "downloads").apply { mkdirs() }
@@ -25,7 +33,7 @@ internal object GogOffline {
         for ((index, part) in patch.parts.withIndex()) {
             if (stop.get()) return first ?: File(root, "cancelled")
             val resolved = GogDownloadManager.resolveRedirect(part.url, GogContent.token(context)) ?: error("The GOG download link is unavailable")
-            val serverName = java.net.URL(resolved).path.substringAfterLast('/').takeIf { it.endsWith(".exe", true) || it.endsWith(".bin", true) }
+            val serverName = GogContent.downloadFilename(resolved).takeIf { it.endsWith(".exe", true) || it.endsWith(".bin", true) }
             val name = part.name.ifBlank { serverName ?: error("GOG did not provide the installer part filename") }
             require('/' !in name && '\\' !in name && name !in setOf(".", "..")) { "Invalid GOG installer filename" }
             val file = GogFiles.inside(root, name)
@@ -60,27 +68,33 @@ internal object GogOffline {
             extraBinds = StoreInstallRoot.externalBindSpecs(context), cancelled = stop, logName = "gog-refresh", onLine = handle::log)
         if (stop.get()) return
         check(rc == 0) { "GOG installer extraction failed (exit $rc)" }
-        val files = extracted.walkTopDown().onEnter { directory ->
+        val sidecar = StoreGameSidecar.read(proposal.folder) ?: error("The original GOG settings are missing")
+        val layout = layout(extracted, proposal.folder, proposal.before.id, sidecar.exe)
+        val files = layout.source.walkTopDown().onEnter { directory ->
             check(!java.nio.file.Files.isSymbolicLink(directory.toPath())) { "GOG installer contains a symbolic link" }
-            directory == extracted || directory.name !in setOf("tmp", "commonappdata")
-        }.filter { it.isFile }.map { file ->
+            layout.source != extracted || directory.parentFile != extracted || directory.name !in setOf("tmp", "commonappdata", "userappdata", "localappdata")
+        }.filter { it != layout.source }.map { file ->
             check(!java.nio.file.Files.isSymbolicLink(file.toPath()))
-            JSONObject().put("path", file.relativeTo(extracted).invariantSeparatorsPath).put("size", file.length()).put("md5", GogFiles.hash(file))
+            JSONObject().put("path", layout.prefix + file.relativeTo(layout.source).invariantSeparatorsPath)
+                .put("size", if (file.isDirectory) 0 else file.length()).put("directory", file.isDirectory)
+                .put("md5", if (file.isDirectory) "" else GogFiles.hash(file)) to file
         }.toList()
-        check(files.isNotEmpty()) { "GOG installer contained no game files" }
-        val inventory = JSONArray(files)
+        check(files.any { !it.first.getBoolean("directory") }) { "GOG installer contained no game files" }
+        val inventory = JSONArray(files.map { it.first })
         GogFiles.validate(inventory, proposal.folder)
         val installed = proposal.target.copy(files = inventory)
         GogFiles.write(File(GogFiles.dir(proposal.folder), "refresh-target.json"), installed.json())
-        for ((index, file) in files.withIndex()) {
+        for ((index, entry) in files.withIndex()) {
             if (stop.get()) return
+            val (file, sourceFile) = entry
             val destination = GogFiles.inside(proposal.folder, file.getString("path"))
-            val sourceFile = GogFiles.inside(extracted, file.getString("path"))
-            destination.parentFile!!.mkdirs()
-            GogFiles.replace(sourceFile, destination)
+            if (file.getBoolean("directory")) java.nio.file.Files.createDirectories(destination.toPath()) else {
+                destination.parentFile!!.mkdirs()
+                GogFiles.replace(sourceFile, destination)
+            }
             handle.stageProgress((index + 1).toLong(), files.size.toLong())
         }
-        for (old in proposal.before.files.objects()) if (files.none { it.getString("path").equals(old.getString("path"), true) } && GogFiles.matches(proposal.folder, old))
+        for (old in proposal.before.files.objects()) if (files.none { it.first.getString("path").equals(old.getString("path"), true) } && GogFiles.matches(proposal.folder, old))
             check(GogFiles.inside(proposal.folder, old.getString("path")).delete())
         installed.write(proposal.folder)
     }
@@ -119,6 +133,7 @@ internal object GogOffline {
         val response = AgentGuest.call(context, request, 20_000, trusted = true)
         check(response.optBoolean("ok") && response.optInt("exitCode", -1) == 0) { "The GOG patch installer could not start; inspect the GOG log" }
         handle.stage(DownloadStage.INSTALL, "Use the Linux session to finish or cancel the patch installer")
+        var nextStatus = System.currentTimeMillis() + 5_000
         while (true) {
             val status = GogFiles.read(File(GogFiles.dir(proposal.folder), "patch-status.json"))
             if (status?.optString("state") in setOf("done", "failed", "uncertain")) {
@@ -126,11 +141,18 @@ internal object GogOffline {
                 break
             }
             check(SessionState.running) { "The patch session ended. Its result needs recovery; the patch will not be rerun automatically." }
+            check(!SessionState.suspended) { "The patch session was suspended. Resume it and verify recovery before retrying." }
+            if (System.currentTimeMillis() >= nextStatus) {
+                val query = JSONObject().put("kind", "exec").put("timeout", 5).put("argv", JSONArray(listOf(HELPER, "status", folder)))
+                val answer = AgentGuest.call(context, query, 10_000, trusted = true)
+                check(answer.optBoolean("ok") && answer.optInt("exitCode", -1) == 0) { "The patch helper could not be reached. Resume the Linux session and verify recovery." }
+                nextStatus = System.currentTimeMillis() + 5_000
+            }
             Thread.sleep(500)
         }
         val info = GogFiles.read(File(proposal.folder, "goggame-${proposal.before.id}.info"))
         val version = info?.optString("versionName").orEmpty()
-        val build = info?.optString("buildId").orEmpty()
+        val build = GogInstallRecord.authenticBuild(proposal.folder, proposal.before.id)
         var record = proposal.target.copy(build = build, version = version, files = JSONArray(), manifest = JSONObject(), verified = false)
         record.write(proposal.folder)
         if (build.isNotBlank()) {

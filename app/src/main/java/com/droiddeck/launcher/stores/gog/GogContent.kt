@@ -24,6 +24,8 @@ internal object GogContent {
 
     fun product(id: String, token: String): JSONObject = json("https://api.gog.com/products/$id?expand=downloads", token)
 
+    fun downloadFilename(url: String): String = java.net.URLDecoder.decode(URL(url).path.substringAfterLast('/').replace("+", "%2B"), "UTF-8")
+
     fun resolveDownload(download: GogOfflineDownload, token: String): GogOfflineDownload = download.copy(parts = download.parts.map { part ->
         val resolved = GogDownloadManager.resolveRedirect(part.url, token) ?: error("The GOG download link is unavailable")
         val connection = URL(resolved).openConnection() as HttpURLConnection
@@ -33,7 +35,7 @@ internal object GogContent {
             check(connection.responseCode in 200..299) { "GOG download metadata failed (HTTP ${connection.responseCode})" }
             val disposition = connection.getHeaderField("Content-Disposition").orEmpty()
             val supplied = Regex("filename=\"?([^\";]+)", RegexOption.IGNORE_CASE).find(disposition)?.groupValues?.get(1).orEmpty()
-            val remote = URL(resolved).path.substringAfterLast('/').takeIf { it.endsWith(".exe", true) || it.endsWith(".bin", true) }.orEmpty()
+            val remote = downloadFilename(resolved).takeIf { it.endsWith(".exe", true) || it.endsWith(".bin", true) }.orEmpty()
             val name = part.name.ifBlank { supplied.ifBlank { remote } }
             check(name.isNotBlank()) { "GOG did not provide the installer part filename" }
             part.copy(name = name, size = connection.contentLengthLong.coerceAtLeast(0))
@@ -153,6 +155,7 @@ internal object GogContent {
 
     fun setupFiles(record: GogInstallRecord, token: String): Pair<JSONArray, JSONObject>? {
         if (!record.manifest.optBoolean("scriptInterpreter")) return null
+        if (record.files.objects().none { file -> record.products.any { file.optString("path").substringAfterLast('/') == "goggame-$it.script" } }) return null
         val index = json("$SYSTEM/dependencies/repository?generation=2")
         val repository = json(index.getString("repository_manifest"))
         val depot = repository.getJSONArray("depots").objects().firstOrNull { it.optString("dependencyId") == "ISI" }

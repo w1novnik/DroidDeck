@@ -44,12 +44,14 @@ internal data class GogInstallRecord(
 
         fun read(folder: File): GogInstallRecord? = GogFiles.read(File(GogFiles.dir(folder), "installed.json"))?.let(::parse)
 
+        fun authenticBuild(folder: File, id: String): String = GogFiles.read(File(folder, "goggame-$id.id"))?.optString("buildId").orEmpty()
+            .ifBlank { GogFiles.read(File(folder, "goggame-$id.info"))?.optString("buildId").orEmpty() }
+
         fun migrate(folder: File, sidecar: StoreGameSidecar): GogInstallRecord {
             read(folder)?.let { require(it.id == sidecar.id); return it }
             val legacy = GogFiles.read(File(folder, "_gog_manifest.json"))
             val info = GogFiles.read(File(folder, "goggame-${sidecar.id}.info"))
-            val build = legacy?.optString("buildId")?.takeIf { it.isNotBlank() }
-                ?: sidecar.installVersion.ifBlank { info?.optString("buildId").orEmpty() }
+            val build = authenticBuild(folder, sidecar.id).ifBlank { legacy?.optString("buildId").orEmpty().ifBlank { sidecar.installVersion } }
             val ids = folder.listFiles().orEmpty().mapNotNull { Regex("goggame-([0-9]+)\\.info").matchEntire(it.name)?.groupValues?.get(1) }
             return GogInstallRecord(sidecar.id, if (legacy != null || sidecar.installVersion.isNotBlank()) "depot" else "offline",
                 legacy?.optInt("generation", if (build.isNotBlank()) 2 else 0) ?: if (build.isNotBlank()) 2 else 0,

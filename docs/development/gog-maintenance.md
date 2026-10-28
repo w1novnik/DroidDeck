@@ -14,6 +14,8 @@ language, installed products, sanitized manifests, and file hashes/chunks.
 Migration uses the existing marker, sidecar, and authentic GOG metadata; missing
 historical content is never replaced with the latest manifest as an assumed
 description of installed files.
+Authentic `goggame-*.id` build metadata takes precedence over legacy markers;
+the numeric `version` field in a GOG info file is a schema, not a game version.
 
 `operation.json` pins the operation, exact folder, previous sidecar/inventory,
 target, and phase. Staged chunks are durable work and are rehashed on resume.
@@ -53,6 +55,15 @@ payloads. Installer exit alone does not establish the installed version: the
 app reconciles the resulting build against a manifest and checks its files.
 Unverifiable results require recovery/full refresh instead of silently restoring
 the previous manifest. External installer cancellation belongs to the installer.
+Setup runs the script interpreter only when an actual GOG script exists, and
+registers the authentic installation path, version, and build in the selected
+prefix. Patch filenames are decoded from provider URLs without changing literal
+plus signs or multipart names. Offline refresh retains the existing executable
+layout and includes empty files and directories.
+
+Short helper status requests detect a dead installer owner or abandoned start.
+Session loss or suspension requires recovery; it never triggers automatic replay.
+The maintenance menu offers result verification for interrupted patch operations.
 
 The same POSIX record lease excludes maintenance and game launches from DD or
 Steam. Session staging publishes the helper to existing Linux installations.
@@ -75,3 +86,11 @@ corruption, path protection, multipart metadata, external patch recovery,
 launch leases, prefix process detection, and the Java fallback. Run Rust and
 Linux helper suites in WSL. JVM results, release/native/runtime-input checks,
 CI results, and actual-device evidence must be reported separately in the PR.
+
+Thor testing has verified a real Rayman 2 depot update, repair of deliberately
+corrupted Rayman content, process-death download recovery, shared Java/Linux
+launch exclusion, and a Neo Cab repair on external SD storage with its sidecar
+unchanged. Standalone patch acceptance remains blocked: the owned ELDERBORN
+1.08-to-1.09 patch reports `Path not found` inside the selected Proton environment,
+including when launched from its C: prefix. This is not successful patch evidence;
+the PR remains draft until a real standalone patch and subsequent launch pass.

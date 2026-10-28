@@ -21,7 +21,7 @@ internal object GogFallback {
         for ((index, item) in files.objects().withIndex()) {
             if (stop.get()) return
             val destination = GogFiles.inside(folder, item.getString("path"))
-            if (item.optBoolean("directory")) { destination.mkdirs(); continue }
+            if (item.optBoolean("directory")) { java.nio.file.Files.createDirectories(destination.toPath()); continue }
             if (GogFiles.matches(folder, item)) continue
             val stage = File(stageRoot, java.security.MessageDigest.getInstance("MD5").digest(item.getString("path").toByteArray()).joinToString("") { "%02x".format(it) })
             val chunks = item.optJSONArray("chunks")?.objects().orEmpty()

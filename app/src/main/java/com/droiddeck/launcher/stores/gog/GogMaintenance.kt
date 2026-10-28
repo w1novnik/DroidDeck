@@ -156,8 +156,7 @@ internal object GogMaintenance {
             lock.use {
                 ensureIdle(context, folder)
                 val before = GogInstallRecord.parse(journal.getJSONObject("before"))
-                val info = GogFiles.read(File(folder, "goggame-${before.id}.info"))
-                val buildId = info?.optString("buildId").orEmpty().ifBlank { before.build }
+                val buildId = GogInstallRecord.authenticBuild(folder, before.id).ifBlank { before.build }
                 check(buildId.isNotBlank()) { "The resulting build is unknown. Use a full offline refresh." }
                 val token = GogContent.token(context)
                 val build = GogBuild.select(GogContent.builds(before.id, token), pinned = buildId)
@@ -174,6 +173,8 @@ internal object GogMaintenance {
             }
         }
         checkedAt.remove(folder.path)
+        DownloadQueue.dismiss(game.key)
+        StoresState.notifyLibraryChanged(context)
         StoresState.post { checks.remove(game.sidecar.id) }
     }
 

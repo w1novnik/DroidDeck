@@ -62,6 +62,31 @@ class GogMaintenanceTest {
         assertEquals(0, record.files.length())
     }
 
+    @Test fun offlineRefreshRetainsTheExistingExecutableLayout() {
+        val installed = temporary.newFolder()
+        val extracted = temporary.newFolder()
+        val app = File(extracted, "app").apply { mkdirs() }
+        File(app, "game.exe").writeText("replacement")
+        File(installed, "goggame-1.info").writeText("{}")
+        assertEquals(app, GogOffline.layout(extracted, installed, "1", "game.exe").source)
+        File(installed, "goggame-1.info").delete()
+        assertEquals(extracted, GogOffline.layout(extracted, installed, "1", "app/game.exe").source)
+        val flat = temporary.newFolder()
+        val legacy = GogOffline.layout(flat, installed, "1", "app/game.exe")
+        assertEquals(flat, legacy.source)
+        assertEquals("app/", legacy.prefix)
+    }
+
+    @Test fun authenticIdentityOverridesAStaleLegacyMarkerWithoutTreatingSchemaAsVersion() {
+        val folder = temporary.newFolder()
+        File(folder, "_gog_manifest.json").writeText("""{"buildId":"old"}""")
+        File(folder, "goggame-1.id").writeText("""{"buildId":"patched"}""")
+        File(folder, "goggame-1.info").writeText("""{"version":1}""")
+        val record = GogInstallRecord.migrate(folder, StoreGameSidecar(Store.GOG, "1", "Game", "game.exe", installVersion = "old"))
+        assertEquals("patched", record.build)
+        assertEquals("", record.version)
+    }
+
     @Test fun authenticGenerationOneResolvesProductDepotsAndRetainsHashesAndBuild() {
         fun fixture(name: String) = JSONObject(javaClass.classLoader!!.getResource("gog/$name")!!.readText())
         val build = GogBuild("3301", "", 1, "", "https://example.invalid/repository.json")
@@ -102,6 +127,7 @@ class GogMaintenanceTest {
         assertEquals(7, patch.size)
         assertEquals(listOf("patch_original.exe", "patch_original-1.bin"), patch.parts.map { it.name })
         assertEquals("abc", patch.parts.first().md5)
+        assertEquals("patch_(52404)+special.exe", GogContent.downloadFilename("https://example.invalid/patch_%2852404%29+special.exe?token=temporary"))
     }
 
     @Test fun pathsRejectTraversalSymlinksCaseCollisionsAndMetadataOverlap() {
