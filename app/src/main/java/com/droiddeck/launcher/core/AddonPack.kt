@@ -128,7 +128,7 @@ internal class AddonPack(
 
     companion object {
         private const val TAG = "AddonPack"
-        private const val REPO = "Droid-Deck/DroidDeck-Components"
+        private const val REPO = BuildConfig.ADDON_PACK_REPO
         private const val PR_REPO = "Droid-Deck/DroidDeck-CI"
         const val COMPLETE = ".complete"
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

@@ -79,6 +79,10 @@ def sourceCommit = providers.environmentVariable('DROIDDECK_SOURCE_COMMIT').getO
     ?: providers.environmentVariable('GITHUB_SHA').getOrNull() ?: gitValue(['rev-parse', 'HEAD']) ?: ''
 def prNumber = (providers.environmentVariable('DROIDDECK_PR_NUMBER').getOrNull() ?: '0').with { it.isInteger() ? it : '0' }
 def ciBuild = providers.environmentVariable('GITHUB_ACTIONS').getOrNull() == 'true'
+def githubRepository = providers.environmentVariable('GITHUB_REPOSITORY').getOrNull()
+def addonPackRepository = System.getenv('DROIDDECK_ADDON_PACK_REPO')
+    ?: (ciBuild && githubRepository && githubRepository != 'Droid-Deck/DroidDeck'
+        ? githubRepository : 'Droid-Deck/DroidDeck-Components')
 def releaseSigner = rootProject.file('keystore/release-signer.sha256').text.trim()
 def commitTime = (gitValue(['show', '-s', '--format=%ct', '--end-of-options', sourceCommit]) ?: '0').with { it.isLong() ? it : '0' }
 def desktopKde = rootProject.file('tools/desktop-kde/release.env').readLines()
@@ -140,6 +144,7 @@ android {
         buildConfigField "long", "COMMIT_TIME", "${commitTime}L * 1000L"
         buildConfigField "String", "VARIANT_SUFFIXES", "\"${variantSuffixes}\""
         buildConfigField "String", "SGDB_API_KEY", "\"${System.getenv("SGDB_API_KEY") ?: project.findProperty("sgdbApiKey") ?: ""}\""
+        buildConfigField "String", "ADDON_PACK_REPO", "\"${addonPackRepository}\""
         buildConfigField "String", "DESKTOP_KDE_TAG", "\"${desktopKde.DESKTOP_KDE_TAG}\""
         buildConfigField "String", "DESKTOP_KDE_URL", "\"https://github.com/${desktopKde.DESKTOP_KDE_REPO}/releases/download/${desktopKde.DESKTOP_KDE_TAG}/desktop-kde.tar.zst\""
         buildConfigField "String", "DESKTOP_KDE_SHA256", "\"${desktopKde.DESKTOP_KDE_SHA256}\""
