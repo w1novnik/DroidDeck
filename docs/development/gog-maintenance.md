@@ -94,3 +94,6 @@ unchanged. Standalone patch acceptance remains blocked: the owned ELDERBORN
 1.08-to-1.09 patch reports `Path not found` inside the selected Proton environment,
 including when launched from its C: prefix. This is not successful patch evidence;
 the PR remains draft until a real standalone patch and subsequent launch pass.
+Rayman 2 also launches through its existing Steam shortcut after maintenance and
+reaches its interactive language menu. Its existing cloud download remains on
+the ordinary game-launch path; patch execution bypasses that path.

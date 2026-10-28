@@ -284,7 +284,7 @@ internal object GogMaintenance {
         if (SessionState.running) {
             val id = (game.steamAppId?.toLong() ?: game.appId) and 0xffffffffL
             val guest = AddedGames.guestPath(context, folder) ?: error("The GOG folder is unavailable to Linux")
-            if (SessionState.suspended) {
+            if (SessionState.suspended || AgentGuest.hello(context) == null) {
                 val root = AddedGames.guestPath(context, SessionPrefs.activeSteamRoot(context)) ?: error("The Steam folder is unavailable to Linux")
                 val rc = GuestCommand.run(context, listOf("/usr/bin/env", "STEAM_COMPAT_CLIENT_INSTALL_PATH=$root", HELPER, "idle", guest, id.toString(), game.guestExe),
                     extraBinds = StoreInstallRoot.externalBindSpecs(context), logName = "gog-idle", onLine = StoresState::logLine)
