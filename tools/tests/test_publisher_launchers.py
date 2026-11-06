@@ -254,6 +254,30 @@ class PublisherLaunchersTest(unittest.TestCase):
                 self.assertEqual(publisher.dispatch(['/proton', 'waitforexitandrun', '/game.exe'], {}), 0)
             self.assertEqual(run.call_args.args[0][-3:], ['ea', '--request', str(self.root)])
 
+    def test_game_environment_loads_publisher_support_only_for_its_shortcuts(self):
+        game = runpy.run_path(str(BIN / 'droiddeck-game-env'))
+        with patch.object(runpy, 'run_path', side_effect=OSError('optional helper unavailable')) as load:
+            self.assertIsNone(game['publisher_launch'](['/stock', 'run'], {}))
+            self.assertIsNone(game['publisher_launch'](['/proton', 'waitforexitandrun', '/Game.exe'], {}))
+            self.assertIsNone(game['publisher_launch'](['/proton', 'run', '/.droiddeck-publisher-launch.bat'],
+                                                        {'DROIDDECK_PUBLISHER_ACTIVE': '1'}))
+            load.assert_not_called()
+
+    def test_game_environment_dispatches_managed_shortcuts_and_preserves_status(self):
+        game = runpy.run_path(str(BIN / 'droiddeck-game-env'))
+        dispatch = Mock(return_value=23)
+        command = ['/proton', 'waitforexitandrun', str(self.root / '.droiddeck-publisher-launch.bat')]
+        env = {'CUSTOM': 'kept'}
+        with patch.object(runpy, 'run_path', return_value={'dispatch': dispatch}):
+            self.assertEqual(game['publisher_launch'](command, env), 23)
+        dispatch.assert_called_once_with(command, env)
+
+    def test_managed_shortcuts_do_not_fall_back_when_the_publisher_helper_is_missing(self):
+        game = runpy.run_path(str(BIN / 'droiddeck-game-env'))
+        with patch.object(runpy, 'run_path', side_effect=OSError('publisher helper unavailable')):
+            with self.assertRaises(OSError):
+                game['publisher_launch'](['/proton', 'run', '/.droiddeck-publisher-launch.bat'], {})
+
     def test_store_preparation_routes_managed_games_before_store_specific_licensing(self):
         source = importlib.machinery.SourceFileLoader('publisher_store_launch', str(BIN / 'droiddeck-store-launch'))
         specification = importlib.util.spec_from_loader(source.name, source)

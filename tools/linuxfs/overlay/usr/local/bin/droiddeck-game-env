@@ -1139,6 +1139,14 @@ def exec_proton(command, env):
     os.execvpe(command[0], command, env)
 
 
+def publisher_launch(command, env):
+    if env.get("DROIDDECK_PUBLISHER_ACTIVE") == "1" or not any(
+            Path(arg.replace("\\", "/")).name == ".droiddeck-publisher-launch.bat" for arg in command):
+        return None
+    publisher = runpy.run_path(str(Path(__file__).with_name("droiddeck-publisher")))
+    return publisher["dispatch"](command, env)
+
+
 def main():
     command = sys.argv[1:]
     if not command:
@@ -1227,15 +1235,13 @@ def main():
             note = "no thread plan added for this core count (%s)" % error
         if note:
             print("droiddeck-game-env: " + note, file=sys.stderr)
-    if env.get("DROIDDECK_PUBLISHER_ACTIVE") != "1":
-        try:
-            publisher = runpy.run_path(str(Path(__file__).with_name("droiddeck-publisher")))
-            result = publisher["dispatch"](command, env)
-            if result is not None:
-                return result
-        except (OSError, ValueError, RuntimeError) as error:
-            print("droiddeck-game-env: Publisher launch could not start (%s)" % error, file=sys.stderr)
-            return 1
+    try:
+        result = publisher_launch(command, env)
+        if result is not None:
+            return result
+    except (OSError, ValueError, KeyError, RuntimeError) as error:
+        print("droiddeck-game-env: Publisher launch could not start (%s)" % error, file=sys.stderr)
+        return 1
     try:
         xbox = runpy.run_path(str(Path(__file__).with_name("droiddeck-xbox")))
     except Exception as error:
