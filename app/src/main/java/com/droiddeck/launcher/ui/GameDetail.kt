@@ -100,6 +100,7 @@ import com.droiddeck.launcher.stores.StoreGameSidecar
 import com.droiddeck.launcher.stores.StoreInstallRoot
 import com.droiddeck.launcher.stores.StoreLanguage
 import com.droiddeck.launcher.stores.StoreSizes
+import com.droiddeck.launcher.stores.PublisherLaunchers
 import com.droiddeck.launcher.stores.StoresState
 import com.droiddeck.launcher.stores.gamejolt.GameJoltApi
 import com.droiddeck.launcher.stores.battlenet.BattleNetInstall
@@ -111,6 +112,8 @@ import com.droiddeck.launcher.stores.xbox.XboxCloudGames
 import com.droiddeck.launcher.stores.xbox.XboxContent
 import com.droiddeck.launcher.stores.xbox.xboxCloud
 import com.droiddeck.launcher.stores.xbox.xboxPc
+import com.droiddeck.launcher.stores.xbox.xboxExternalLauncher
+import com.droiddeck.launcher.stores.xbox.xboxCloudId
 import com.droiddeck.launcher.stores.xbox.XboxRuntime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -399,13 +402,15 @@ internal fun GameActions(
     val download = rawDownload?.takeIf { it.isActive }
     val failed = rawDownload?.takeIf { it.state == DownloadState.FAILED }
     val cloud = game?.library == Library.XBOX_CLOUD && installed == null
+    val publisher = PublisherLaunchers.provider(item)
+    val publisherInstalled = PublisherLaunchers.managed(installed?.sidecar)
     Actions {
         when {
             s.shortcutPicker && game != null -> {
                 PrimaryButton(stringResource(R.string.game_shortcut_choose), enabled = !s.busy, main = true, icon = Icons.Filled.PlayArrow, modifier = leadOn) { a.onSteamGame(game) }
                 FileButtons(game, a)
             }
-            !cloud && (game != null || installed != null) -> {
+            !cloud && (game != null || installed != null) && (publisher == null && item?.xboxExternalLauncher == null || publisherInstalled) -> {
                 val gone = storeKey?.let { StoresState.uninstalling[it] }
                 val xboxBusy = store == Store.XBOX && id != null && XboxContent.busy(id)
                 PrimaryButton(
@@ -429,8 +434,14 @@ internal fun GameActions(
                     }
                 }
                 if (store == Store.GOG && installed != null) GogMaintenanceActions(installed)
-                if (store == Store.XBOX && id != null) XboxInstalledStream(id, game?.name ?: item?.title.orEmpty(), item)
-                if (store == Store.XBOX && installed != null && id != null) {
+                if (store == Store.XBOX && id != null) XboxInstalledStream(item?.xboxCloudId ?: id, game?.name ?: item?.title.orEmpty(), item)
+                if (publisherInstalled && installed != null) SecondaryButton(stringResource(R.string.stores_publisher_manage,
+                    PublisherLaunchers.label(installed.sidecar.extra.getValue("publisherLauncher")))) {
+                    val sidecar = installed.sidecar
+                    PublisherLaunchers.request(ctx, item ?: CatalogItem(sidecar.store, sidecar.id, sidecar.title, sidecar.hero, extra = sidecar.extra),
+                        installed.folder.parentFile!!.parentFile!!, sidecar.extra.getValue("publisherLauncher"), "manage")
+                }
+                if (store == Store.XBOX && installed != null && id != null && !publisherInstalled) {
                     SecondaryButton(stringResource(R.string.stores_xbox_update), enabled = download == null && !XboxRuntime.isActive(id)) {
                         runCatching { XboxBackend.update(ctx, installed) }
                             .onFailure { StoresState.problems[Store.XBOX] = it.message ?: ctx.getString(R.string.stores_xbox_close_first) }
@@ -457,6 +468,22 @@ internal fun GameActions(
                 if (download.state != DownloadState.PAUSED) SecondaryButton(stringResource(R.string.stores_dl_pause), modifier = leadOn) { DownloadQueue.pause(download.key) }
                 else PrimaryButton(stringResource(R.string.stores_dl_resume), main = true, modifier = leadOn) { DownloadQueue.resume(ctx, download.key) }
                 ConfirmButton(stringResource(R.string.stores_dl_cancel), stringResource(R.string.stores_dl_cancel_confirm)) { DownloadQueue.cancel(ctx, download.key) }
+            }
+            item != null && (publisher != null || store == Store.XBOX && item.xboxExternalLauncher != null) -> {
+                PrimaryButton(
+                    if (publisher != null) stringResource(R.string.stores_publisher_install, PublisherLaunchers.label(publisher))
+                    else stringResource(R.string.stores_xbox_external_install),
+                    main = true, modifier = leadOn,
+                ) {
+                    if (publisher != null) StoresState.requestInstall(ctx, item)
+                    else XboxBackend.explainExternalLauncher(item.xboxExternalLauncher)
+                }
+                if (item.xboxCloud) {
+                    XboxStreamButton(item.xboxCloudId, item.title)
+                    XboxLibraryButton(item.xboxCloudId, item.copy(id = item.xboxCloudId))
+                }
+                if (failed != null) ConfirmButton(stringResource(R.string.stores_dl_clear), stringResource(R.string.stores_dl_cancel_confirm), compact = true) { DownloadQueue.clear(ctx, failed.key) }
+                else if (StoresState.isUnfinished(item)) ConfirmButton(stringResource(R.string.stores_dl_clear), stringResource(R.string.stores_dl_cancel_confirm), compact = true) { StoresState.clearUnfinished(ctx, item) }
             }
             failed != null -> {
                 ActionChip(stringResource(R.string.stores_dl_failed), ok = false)
@@ -493,8 +520,8 @@ internal fun GameActions(
                     leadOn,
                 ) { StoresState.requestInstall(ctx, item) }
                 if (store == Store.XBOX && item.xboxCloud) {
-                    XboxStreamButton(item.id, item.title)
-                    XboxLibraryButton(item.id, item)
+                    XboxStreamButton(item.xboxCloudId, item.title)
+                    XboxLibraryButton(item.xboxCloudId, item.copy(id = item.xboxCloudId))
                 }
                 if (!item.accessible) SecondaryButton(buyLabel(item)) { openStoreUrl(ctx, item) }
             }

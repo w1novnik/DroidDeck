@@ -1000,7 +1000,8 @@ class SessionService : Service() {
         Log.i(TAG, "vkbridge: on (${com.droiddeck.launcher.core.DeviceSupport.gpuName(this)}, ${SessionPrefs.vkBridgeMode(this)} mode), socket $socket")
     }
     private fun noSteamGame(): Boolean =
-        SessionState.mode == MODE_RUN && SessionState.program in setOf(NoSteamLaunch.PROTON_RUN, NoSteamLaunch.EPIC, NoSteamLaunch.BATTLENET)
+        SessionState.mode == MODE_RUN && SessionState.program in setOf(NoSteamLaunch.PROTON_RUN, NoSteamLaunch.EPIC, NoSteamLaunch.BATTLENET,
+            com.droiddeck.launcher.stores.PublisherLaunchers.PROGRAM)
 
     private fun startAudio(guest: MutableList<String>, sessionDir: File, directAudioPack: Boolean): PulseAudioComponent {
         val wantsDirectAudio = directAudioPack &&
@@ -2038,7 +2039,7 @@ class SessionService : Service() {
         val stoppedGen = sessionGen
         val stoppedSession = SessionState.sessionId
         val launcherEnded = SessionState.mode == MODE_STEAM || SessionState.mode == MODE_DESKTOP || SessionState.program == NoSteamLaunch.EPIC ||
-            SessionState.program == NoSteamLaunch.BATTLENET
+            SessionState.program == NoSteamLaunch.BATTLENET || SessionState.program == com.droiddeck.launcher.stores.PublisherLaunchers.PROGRAM
         SessionState.stopRequested = false
         GpuClockPin.stop(this)
         GameThreadHints.stop()
@@ -2101,6 +2102,8 @@ class SessionService : Service() {
     }
 
     private fun importLauncherGames() {
+        runCatching { com.droiddeck.launcher.stores.PublisherLaunchers.importCompleted(this) }
+            .onFailure { Log.w(TAG, "Publisher library scan failed: ${it.javaClass.simpleName}") }
         runCatching { com.droiddeck.launcher.stores.epic.EpicClientLibrary.importClientGames(this) }
             .onFailure { Log.w(TAG, "client library scan failed: ${it.javaClass.simpleName}") }
         runCatching { com.droiddeck.launcher.stores.battlenet.BattleNetClient.syncAccount(this) }

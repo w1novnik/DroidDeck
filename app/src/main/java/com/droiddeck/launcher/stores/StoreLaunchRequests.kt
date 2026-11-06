@@ -51,6 +51,13 @@ object StoreLaunchRequests {
             return
         }
         val reply = when (request.optString("op")) {
+            "publisher-auth" -> runCatching {
+                check(PublisherLaunchers.epicRequest(app, request.optString("id")))
+                val token = com.droiddeck.launcher.stores.epic.EpicCredentialStore.getValidAccessToken(app) ?: error("sign-in-required")
+                val credentials = com.droiddeck.launcher.stores.epic.EpicCredentialStore.load(app) ?: error("sign-in-required")
+                val code = com.droiddeck.launcher.stores.epic.EpicApiClient.exchangeCode(token) ?: error("exchange-failed")
+                JSONObject().put("ok", true).put("code", code).put("accountId", credentials.accountId).put("displayName", credentials.displayName)
+            }.getOrElse { JSONObject().put("ok", false).put("reason", "epic-sign-in-required") }
             "xbox-released" -> {
                 com.droiddeck.launcher.stores.xbox.XboxRuntime.released(request.optString("lease"))
                 JSONObject().put("ok", true)

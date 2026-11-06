@@ -1002,7 +1002,10 @@ def diagnostic_game_exit(app_id, raw_code, source=None, wrapper_status=None):
 
 
 def start(launch, launch_env, digest, after=None, diagnostic_app_id=None):
-    if len(launch) > 1 and launch[1] == "waitforexitandrun":
+    if len(launch) > 1 and (launch[1] == "waitforexitandrun" or
+                            launch[1] == "run" and launch_env.get("DROIDDECK_PUBLISHER_ACTIVE") == "1"):
+        if launch_env.get("DROIDDECK_PUBLISHER_ACTIVE") == "1":
+            ubisoft_overlay_off(launch_env)
         ubisoft_composition_off(launch[0], launch_env)
     launch, launch_env = system_graphics_launch(launch, launch_env)
     if after or diagnostic_app_id is not None:
@@ -1224,6 +1227,15 @@ def main():
             note = "no thread plan added for this core count (%s)" % error
         if note:
             print("droiddeck-game-env: " + note, file=sys.stderr)
+    if env.get("DROIDDECK_PUBLISHER_ACTIVE") != "1":
+        try:
+            publisher = runpy.run_path(str(Path(__file__).with_name("droiddeck-publisher")))
+            result = publisher["dispatch"](command, env)
+            if result is not None:
+                return result
+        except (OSError, ValueError, RuntimeError) as error:
+            print("droiddeck-game-env: Publisher launch could not start (%s)" % error, file=sys.stderr)
+            return 1
     try:
         xbox = runpy.run_path(str(Path(__file__).with_name("droiddeck-xbox")))
     except Exception as error:

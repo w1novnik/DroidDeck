@@ -139,6 +139,7 @@ import com.droiddeck.launcher.stores.arrangeStoreTabs
 import com.droiddeck.launcher.stores.download.DownloadStage
 import com.droiddeck.launcher.stores.download.DownloadState
 import com.droiddeck.launcher.stores.formatBytes
+import com.droiddeck.launcher.stores.xbox.xboxExternalLauncher
 import androidx.compose.runtime.setValue
 
 
@@ -1362,7 +1363,7 @@ private fun CardMarker(item: CatalogItem, installed: Boolean, download: com.droi
         status && item.store == Store.GOG && download != null -> Text("${download.percent}%", fontSize = small, fontWeight = FontWeight.Bold, color = pal.signal, maxLines = 1)
         status && item.store == Store.GOG && installed && com.droiddeck.launcher.stores.gog.GogMaintenance.checks[item.id]?.state == com.droiddeck.launcher.stores.gog.GogMaintenance.State.AVAILABLE ->
             Text(stringResource(R.string.common_update), fontSize = small, fontWeight = FontWeight.Bold, color = pal.signal, maxLines = 1)
-        installed -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+        installed && (item.xboxExternalLauncher == null || com.droiddeck.launcher.stores.PublisherLaunchers.managed(StoresState.installedGame(item.store, item.id)?.sidecar)) -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
             val ctx = LocalContext.current
             val game = StoresState.installedGame(item.store, item.id)
             if (game != null && !compact) androidx.compose.runtime.LaunchedEffect(item.key) { com.droiddeck.launcher.stores.StoreSizes.requestDisk(ctx, item.key, game) }

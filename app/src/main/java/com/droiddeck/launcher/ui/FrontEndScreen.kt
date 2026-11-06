@@ -207,6 +207,7 @@ class FrontEndActions(
     val onFlatpakApp: (String, String) -> Unit = { _, _ -> },
     val onUserApp: (com.droiddeck.launcher.runtime.UserApps.App) -> Unit = {},
     val onBattleNet: () -> Unit = {},
+    val onPublisherLauncher: (com.droiddeck.launcher.stores.PublisherLaunchers.Launch) -> Unit = {},
     val onRom: (Library.Rom) -> Unit,
     val onResume: () -> Unit,
     val onSteamSettings: () -> Unit,
@@ -721,6 +722,12 @@ private fun FrontEndScreenBody(s: FrontEndState, a: FrontEndActions, page: (@Com
         }
         FlightsLayer(screenAt)
         GamesDialogs(a, s.steamGames)
+        com.droiddeck.launcher.stores.PublisherLaunchers.pendingLaunch?.let { launch ->
+            LaunchedEffect(launch) {
+                com.droiddeck.launcher.stores.PublisherLaunchers.takeLaunch()
+                a.onPublisherLauncher(launch)
+            }
+        }
         StoreTheme(com.droiddeck.launcher.stores.Store.XBOX) { XboxStoreDialogs() }
         com.droiddeck.launcher.stores.StoresState.pendingInstall?.let { item -> StoreTheme(item.store) { InstallWhere(item) } }
         com.droiddeck.launcher.stores.StoresState.itchPicking?.let { item -> StoreTheme(item.store) { ItchBuildPicker(item) { com.droiddeck.launcher.stores.StoresState.itchPicking = null } } }

@@ -1,0 +1,174 @@
+[
+  {
+    "ProductId": "9PJ8CKFDWWLF",
+    "ProductType": "Game",
+    "LocalizedProperties": [
+      {
+        "ProductTitle": "Prince of Persia The Lost Crown",
+        "PublisherName": "Ubisoft"
+      }
+    ],
+    "DisplaySkuAvailabilities": [
+      {
+        "Sku": {
+          "Properties": {
+            "Packages": [
+              {
+                "Applications": [
+                  {
+                    "ApplicationId": "GDKStubGame",
+                    "DeclarationOrder": 0,
+                    "Extensions": [
+                      "protocol-ms-xbl-70f01407"
+                    ]
+                  }
+                ],
+                "MaxDownloadSizeInBytes": 10612736,
+                "MaxInstallSizeInBytes": 32212254720,
+                "PackageFormat": "MSIXVC",
+                "PackageFamilyName": "Ubisoft.PCPrinceofPersiaTheLostCrown_ngz4m417e0mpw",
+                "ContentId": "489f9fc4-7263-48a1-bf45-ac397a92e224",
+                "PlatformDependencies": [
+                  {
+                    "MaxTested": 2814750970478592,
+                    "MinVersion": 2814750970478592,
+                    "PlatformName": "Windows.Desktop"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  {
+    "ProductId": "9MVQXW1RJVCN",
+    "ProductType": "Game",
+    "LocalizedProperties": [
+      {
+        "ProductTitle": "Far Cry® 5",
+        "PublisherName": "Ubisoft"
+      }
+    ],
+    "DisplaySkuAvailabilities": [
+      {
+        "Sku": {
+          "Properties": {
+            "Packages": [
+              {
+                "Applications": [
+                  {
+                    "ApplicationId": "GDKStubGame",
+                    "DeclarationOrder": 0,
+                    "Extensions": [
+                      "protocol-ms-xbl-66790ee9"
+                    ]
+                  }
+                ],
+                "MaxDownloadSizeInBytes": 10612736,
+                "MaxInstallSizeInBytes": 42949672960,
+                "PackageFormat": "MSIXVC",
+                "PackageFamilyName": "Ubisoft.5031D939360A_ngz4m417e0mpw",
+                "ContentId": "cb1746d8-c209-4112-a2b3-9cfe3c482198",
+                "PlatformDependencies": [
+                  {
+                    "MaxTested": 2814750970478592,
+                    "MinVersion": 2814750970478592,
+                    "PlatformName": "Windows.Desktop"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  {
+    "ProductId": "9N661LCNBH8J",
+    "ProductType": "Game",
+    "LocalizedProperties": [
+      {
+        "ProductTitle": "Far Cry® 6",
+        "PublisherName": "UBISOFT"
+      }
+    ],
+    "DisplaySkuAvailabilities": [
+      {
+        "Sku": {
+          "Properties": {
+            "Packages": [
+              {
+                "Applications": [
+                  {
+                    "ApplicationId": "GDKStubGame",
+                    "DeclarationOrder": 0,
+                    "Extensions": [
+                      "protocol-ms-xbl-7ce18ed6"
+                    ]
+                  }
+                ],
+                "MaxDownloadSizeInBytes": 10612736,
+                "MaxInstallSizeInBytes": 97710505984,
+                "PackageFormat": "MSIXVC",
+                "PackageFamilyName": "Ubisoft.PCPrometheus_ngz4m417e0mpw",
+                "ContentId": "2a06988c-9989-4d17-a9d4-6144f0e8ac20",
+                "PlatformDependencies": [
+                  {
+                    "MaxTested": 2814750970478592,
+                    "MinVersion": 2814750970478592,
+                    "PlatformName": "Windows.Desktop"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  {
+    "ProductId": "9PN0MPNNP92J",
+    "ProductType": "Game",
+    "LocalizedProperties": [
+      {
+        "ProductTitle": "FAR CRY 3",
+        "PublisherName": "Ubisoft"
+      }
+    ],
+    "DisplaySkuAvailabilities": [
+      {
+        "Sku": {
+          "Properties": {
+            "Packages": [
+              {
+                "Applications": [
+                  {
+                    "ApplicationId": "GDKStubGame",
+                    "DeclarationOrder": 0,
+                    "Extensions": [
+                      "protocol-ms-xbl-6ebc9c93"
+                    ]
+                  }
+                ],
+                "MaxDownloadSizeInBytes": 10612736,
+                "MaxInstallSizeInBytes": 16106127360,
+                "PackageFormat": "MSIXVC",
+                "PackageFamilyName": "Ubisoft.PCFarCry3_ngz4m417e0mpw",
+                "ContentId": "49f5c2bd-eae5-4531-9755-dfe9d81a3001",
+                "PlatformDependencies": [
+                  {
+                    "MaxTested": 2814750970478592,
+                    "MinVersion": 2814750970478592,
+                    "PlatformName": "Windows.Desktop"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }
+]

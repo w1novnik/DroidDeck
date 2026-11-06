@@ -30,7 +30,7 @@ object XboxBackend : StoreBackend {
             XboxCloudActivity.clearWebSignIn(context)
             XboxRuntime.stop()
         }
-        StoresState.post { packageChoice = null; StoresState.shelves.remove(store); StoresState.found.remove(store) }
+        StoresState.post { packageChoice = null; externalLauncher = null; StoresState.shelves.remove(store); StoresState.found.remove(store) }
     }
 
     @Synchronized override fun syncLibrary(context: Context, force: Boolean) {
@@ -109,6 +109,11 @@ object XboxBackend : StoreBackend {
         private set
 
     fun dismissPackages() { packageChoice = null }
+    var externalLauncher by androidx.compose.runtime.mutableStateOf<String?>(null)
+        private set
+
+    fun explainExternalLauncher(launcher: String?) { externalLauncher = launcher }
+
     fun selectPackage(context: Context, choice: org.json.JSONObject) {
         val pending = packageChoice ?: return
         packageChoice = null
@@ -120,14 +125,36 @@ object XboxBackend : StoreBackend {
     override fun install(context: Context, item: CatalogItem, root: File) {
         val app = context.applicationContext
         if (!item.extra["baseId"].isNullOrBlank()) { XboxContent.install(app, item); return }
-        if (!item.extra["contentId"].isNullOrBlank()) { enqueue(app, item, root); return }
+        item.xboxExternalLauncher?.let {
+            if (it == XboxPackagePolicy.OTHER) explainExternalLauncher(it)
+            else PublisherLaunchers.request(app, item, root, it)
+            return
+        }
         Thread({
             try {
                 val plan = Xodus.run(app, listOf("resolve-package", item.id, "--json", "--market", item.extra["market"] ?: Xodus.market()))
                 require(plan.getInt("schema") == 1 && plan.getString("rootProductId") == item.id)
-                val choices = XboxCatalog.objects(plan.getJSONArray("choices")).filter { it.optBoolean("supported") && it.optString("kind") == "Game" }
+                val selectedId = item.extra["contentId"].orEmpty()
+                val candidates = XboxCatalog.objects(plan.getJSONArray("choices")).filter {
+                    it.optBoolean("supported") && it.optString("kind") == "Game" &&
+                        (selectedId.isEmpty() || it.optString("contentId").equals(selectedId, true))
+                }
+                check(candidates.isNotEmpty()) { "This offer has no supported PC package." }
+                val products = XboxCatalog.rawProducts(candidates.map { it.getString("productId") }, item.extra["market"] ?: Xodus.market())
+                val selection = XboxPackagePolicy.selection(candidates, products)
+                val choices = selection.choices
+                if (choices.isEmpty() && selection.externalLauncher != null) {
+                    val updated = item.copy(sizeBytes = 0, extra = item.extra + mapOf("pc" to "0", "externalLauncher" to selection.externalLauncher))
+                    StoresState.post {
+                        StoresState.library[store]?.let { StoresState.library[store] = patchItems(it, listOf(updated)) }
+                        StoresState.found[store]?.let { StoresState.found[store] = patchItems(it, listOf(updated)) }
+                        if (selection.externalLauncher == XboxPackagePolicy.OTHER) explainExternalLauncher(selection.externalLauncher)
+                        else PublisherLaunchers.request(app, updated, root, selection.externalLauncher)
+                    }
+                    return@Thread
+                }
                 check(choices.isNotEmpty()) { "This offer has no supported PC package." }
-                if (plan.getString("status") == "ready" && choices.size == 1) {
+                if (choices.size == 1) {
                     val selected = item.copy(extra = item.extra + ("contentId" to choices.single().getString("contentId")))
                     com.droiddeck.launcher.stores.download.SavedQueue.remember(app, selected, root)
                     enqueue(app, selected, root)
@@ -144,8 +171,7 @@ object XboxBackend : StoreBackend {
         val item = CatalogItem(store, sidecar.id, sidecar.title, sidecar.hero, tallImageUrl = sidecar.cover,
             owned = sidecar.extra["access"] == "owned", subscription = sidecar.extra["access"] == "gamepass", extra = sidecar.extra)
         val root = game.folder.parentFile!!.parentFile!!
-        com.droiddeck.launcher.stores.download.SavedQueue.remember(context, item, root)
-        enqueue(context, item, root)
+        install(context, item, root)
     }
 
     private fun enqueue(context: Context, item: CatalogItem, root: File) {

@@ -86,6 +86,7 @@ object StoresState {
                 seen = refreshRequests.get()
                 runCatching { com.droiddeck.launcher.stores.battlenet.BattleNetClient.syncAccount(app) }
                 val found = Store.entries.mapNotNull { store -> StoreAccounts.displayName(app, store)?.let { store to it } }
+                PublisherLaunchers.importCompleted(app)
                 val onDisk = StoreInstallRoot.gameFolders(app).mapNotNull { folder ->
                     StoreGameSidecar.read(folder)?.takeIf { it.isInstalled || it.state == StoreGameSidecar.STATE_UPDATING }?.let { InstalledStoreGame(it, folder) }
                 } + runCatching { com.droiddeck.launcher.stores.battlenet.BattleNetBackend.installedGames(app) }.getOrDefault(emptyList())
@@ -290,6 +291,15 @@ object StoresState {
 
     fun uninstall(context: Context, game: InstalledStoreGame, onDone: () -> Unit = {}) {
         val app = context.applicationContext
+        if (PublisherLaunchers.managed(game.sidecar)) {
+            val sidecar = game.sidecar
+            val provider = sidecar.extra.getValue("publisherLauncher")
+            android.widget.Toast.makeText(context, context.getString(com.droiddeck.launcher.R.string.stores_publisher_uninstall, PublisherLaunchers.label(provider)), android.widget.Toast.LENGTH_LONG).show()
+            PublisherLaunchers.request(app, CatalogItem(sidecar.store, sidecar.id, sidecar.title, sidecar.hero, tallImageUrl = sidecar.cover,
+                extra = sidecar.extra), game.folder.parentFile!!.parentFile!!, provider, "uninstall")
+            onDone()
+            return
+        }
         val key = "${game.sidecar.store.id}:${game.sidecar.id}"
         uninstalling[key] = 0f
         background("stores-uninstall", onFailure = { main.post { uninstalling.remove(key); onDone() } }) {

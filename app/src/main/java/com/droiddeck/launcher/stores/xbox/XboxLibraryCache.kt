@@ -23,19 +23,20 @@ internal object XboxLibraryCache {
     fun clear(app: Context) { prefs(app).edit().remove("library").commit() }
 
     internal fun encode(account: String, market: String, games: List<CatalogItem>, now: Long = System.currentTimeMillis()): String =
-        JSONObject().put("schema", 2).put("account", account).put("market", market).put("savedAt", now)
+        JSONObject().put("schema", 3).put("account", account).put("market", market).put("savedAt", now)
             .put("games", JSONArray().apply {
                 for (game in games) put(JSONObject().put("id", game.id).put("title", game.title)
                     .put("image", game.imageUrl).put("poster", game.tallImageUrl).put("description", game.description)
                     .put("developer", game.developer).put("publisher", game.publisher).put("size", game.sizeBytes)
                     .put("access", if (game.subscription) "gamepass" else if (game.owned) "owned" else "none")
-                    .put("pc", game.xboxPc).put("cloud", game.xboxCloud).put("cloudId", game.extra["cloudId"].orEmpty()))
+                    .put("pc", game.xboxPc).put("cloud", game.xboxCloud).put("cloudId", game.extra["cloudId"].orEmpty())
+                    .put("externalLauncher", game.xboxExternalLauncher.orEmpty()))
             }).toString()
 
     internal fun decode(text: String?, account: String, market: String, now: Long = System.currentTimeMillis()): Snapshot? = runCatching {
         require(text != null && text.length <= 8_000_000)
         val json = JSONObject(text)
-        require(json.getInt("schema") == 2 && json.getString("account") == account && json.getString("market") == market)
+        require(json.getInt("schema") == 3 && json.getString("account") == account && json.getString("market") == market)
         val savedAt = json.getLong("savedAt")
         require(savedAt > 0 && savedAt <= now + 60_000)
         val rows = json.getJSONArray("games")
@@ -46,13 +47,16 @@ internal object XboxLibraryCache {
             val title = row.getString("title")
             val access = row.getString("access")
             val cloudId = row.optString("cloudId").takeIf { it.matches(Regex("[A-Z0-9]{12}")) }.orEmpty()
+            val external = row.optString("externalLauncher")
+            require(external in setOf("", XboxPackagePolicy.UBISOFT, XboxPackagePolicy.EA, XboxPackagePolicy.OTHER))
             require(id.matches(Regex("[A-Z0-9]{12}")) && title.isNotBlank() && access in setOf("owned", "gamepass"))
             CatalogItem(Store.XBOX, id, title, row.optString("image").takeIf { it.isNotEmpty() },
                 tallImageUrl = row.optString("poster").takeIf { it.isNotEmpty() },
                 description = row.optString("description"), developer = row.optString("developer"), publisher = row.optString("publisher"),
                 sizeBytes = row.optLong("size"), owned = access == "owned", subscription = access == "gamepass",
                 storeUrl = "https://www.xbox.com/games/store/$id", extra = mapOf("market" to market, "access" to access,
-                    "pc" to XboxCatalog.flag(row.getBoolean("pc")), "cloud" to XboxCatalog.flag(row.getBoolean("cloud")), "cloudId" to cloudId))
+                    "pc" to XboxCatalog.flag(row.getBoolean("pc")), "cloud" to XboxCatalog.flag(row.getBoolean("cloud")), "cloudId" to cloudId) +
+                    (external.takeIf { it.isNotEmpty() }?.let { mapOf("externalLauncher" to it) } ?: emptyMap()))
         }
         require(games.map { it.id }.distinct().size == games.size)
         Snapshot(games, savedAt)

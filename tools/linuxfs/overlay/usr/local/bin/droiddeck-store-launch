@@ -632,6 +632,10 @@ def main(argv):
         return 0
     folder, sidecar = found
     store, game = str(sidecar.get("store")), str(sidecar.get("id"))
+    extra = sidecar.get("extra") or {}
+    if extra.get("publisherManaged") == "1" and extra.get("publisherLauncher") in ("ubisoft", "ea"):
+        command = [sys.executable, str(Path(__file__).with_name("droiddeck-publisher")), extra["publisherLauncher"], "--request", str(folder)]
+        return RAN if subprocess.call(command) == 0 else RAN_FAILED
     if store == "gog":
         helper = Path(__file__).resolve().with_name("droiddeck-gog-maintenance")
         if helper.is_file():

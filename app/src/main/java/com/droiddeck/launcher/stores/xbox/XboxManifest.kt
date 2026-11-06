@@ -5,7 +5,7 @@ import org.xmlpull.v1.XmlPullParser
 
 internal object XboxManifest {
     data class Info(val storeId: String, val name: String, val publisher: String, val version: String,
-        val dependency: String, val related: List<String>, val executables: List<String>)
+        val dependency: String, val related: List<String>, val executables: List<String>, val placeholder: Boolean = false)
 
     fun read(folder: File): Info {
         val manifests = folder.listFiles().orEmpty().filter { it.name.equals("MicrosoftGame.config", true) && it.isFile }
@@ -18,6 +18,7 @@ internal object XboxManifest {
         val dependencies = ArrayList<String>()
         val related = ArrayList<String>()
         val entries = ArrayList<String>()
+        var stub = false
         fun attribute(name: String) = parser.getAttributeValue(null, name).orEmpty()
         var root = false
         var elements = 0
@@ -38,7 +39,10 @@ internal object XboxManifest {
                             "Executable" -> {
                                 val path = attribute("Name").replace('\\', '/')
                                 if (path.endsWith(".exe", true) && attribute("TargetDeviceFamily") in listOf("", "PC", "Windows.Desktop") &&
-                                    !attribute("IsDevOnly").equals("true", true)) entries.add(path)
+                                    !attribute("IsDevOnly").equals("true", true)) {
+                                    if (attribute("Id").equals("GDKStubGame", true) || path.substringAfterLast('/').equals("GDKStubGame.exe", true)) stub = true
+                                    else entries.add(path)
+                                }
                             }
                         }
                     }
@@ -50,11 +54,13 @@ internal object XboxManifest {
         require(ids.size <= 128 && ids.all { it.matches(Regex("[A-Z0-9]{12}")) })
         val identity = identities.singleOrNull()
         return Info(storeIds.singleOrNull().orEmpty(), identity?.get(0).orEmpty(), identity?.get(1).orEmpty(), identity?.get(2).orEmpty(),
-            dependencies.singleOrNull().orEmpty(), ids, entries)
+            dependencies.singleOrNull().orEmpty(), ids, entries, stub && entries.isEmpty())
     }
 
     fun executable(folder: File): String {
-        for (path in read(folder).executables) {
+        val info = read(folder)
+        check(!info.placeholder) { "This Xbox package is a launcher placeholder. Install the game through its publisher's launcher instead." }
+        for (path in info.executables) {
             require(!path.startsWith('/') && !path.contains(':') && path.split('/').none { it == ".." || it.isEmpty() })
             var file = folder
             for (part in path.split('/')) {

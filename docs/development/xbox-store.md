@@ -3,6 +3,34 @@
 This integrates PC Microsoft Store MSIXVC packages,
 not Xbox console emulation or UWP/APPX packages.
 
+PC packages whose only catalog application ID is `GDKStubGame` are external
+launcher placeholders. Prince of Persia: The Lost Crown and Far Cry 3, 5 and 6
+use these Ubisoft packages. Xbox EA bridge products use the
+`ElectronicArtsMobile.*` package family. A real desktop MSIXVC game remains on
+the regular installer regardless of its publisher.
+
+These entries use the common `PublisherLaunchers` / `droiddeck-publisher` path,
+also used by explicitly identified Epic Ubisoft/EA partner games. Install opens
+a run-mode session, downloads the official Ubisoft Connect or EA app installer
+when necessary, and reuses a separate Proton prefix for that publisher. Sign in
+and install the full game in the client. Eligible Xbox Ubisoft subscriptions
+open the official Ubisoft activation page; Epic partner handoffs request a fresh
+exchange code through the existing session channel. No account token is saved
+in the installation request or result.
+
+The helper reads client installation records and checks for a retail PE
+executable before reporting an installed game. Ambiguous names are not guessed.
+The Android host validates the result against the original request before
+registering a launcher shortcut. Play uses the native publisher product ID in
+the same client prefix; updates, cloud saves and license checks belong to that
+client. Manage and uninstall open the publisher client. Cloud streaming remains
+available independently, including a separate console edition when present.
+
+An old downloaded placeholder cannot complete installation or use Xodus launch
+preparation. Full Android UI, account activation, client installation and game
+playback through the new path still require device validation. The account-free
+tests do not establish that the clients or a particular game run on Android.
+
 ## Testing on Thor
 
 1. Open DroidDeck, select Stores, then Xbox and Sign in. Use the Microsoft account

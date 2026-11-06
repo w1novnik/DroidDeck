@@ -102,13 +102,12 @@ internal object XboxCatalog {
         if (!productId.matches(id) || json.optString("ProductType") != "Game") return null
         val localized = objects(json.optJSONArray("LocalizedProperties")).firstOrNull() ?: return null
         val title = localized.optString("ProductTitle").takeIf { it.isNotBlank() } ?: return null
-        val packages = objects(json.optJSONArray("DisplaySkuAvailabilities")).flatMap {
-            objects(it.optJSONObject("Sku")?.optJSONObject("Properties")?.optJSONArray("Packages"))
-        }
-        val pc = packages.filter { pkg -> objects(pkg.optJSONArray("PlatformDependencies")).any { it.optString("PlatformName") == "Windows.Desktop" } }
-        val installable = pc.any { it.optString("PackageFormat").equals("MSIXVC", true) }
+        val pc = XboxPackagePolicy.packages(json).filter { XboxPackagePolicy.desktop(it) && it.optString("PackageFormat").equals("MSIXVC", true) }
+        val playable = pc.filterNot(XboxPackagePolicy::placeholder)
+        val installable = playable.isNotEmpty()
+        val external = if (installable) null else XboxPackagePolicy.launcher(pc) ?: XboxPackagePolicy.externalProduct(json)
         val streams = cloud?.streams(id, access[id].orEmpty()) == true
-        if (!installable && !streams) return null
+        if (!installable && !streams && external == null) return null
         val images = objects(localized.optJSONArray("Images"))
         fun image(vararg kinds: String): String? = kinds.firstNotNullOfOrNull { purpose ->
             images.firstOrNull { it.optString("ImagePurpose") == purpose }?.optString("Uri")?.let { raw ->
@@ -128,8 +127,9 @@ internal object XboxCatalog {
             storeUrl = "https://www.xbox.com/games/store/$id",
             publisher = localized.optString("PublisherName"), developer = localized.optString("DeveloperName"),
             description = localized.optString("ProductDescription"),
-            sizeBytes = if (installable) pc.maxOfOrNull { it.optLong("MaxDownloadSizeInBytes") } ?: 0L else 0L,
-            extra = mapOf("market" to Xodus.market(), "access" to kind.orEmpty(), "pc" to flag(installable), "cloud" to flag(streams)),
+            sizeBytes = playable.maxOfOrNull { it.optLong("MaxDownloadSizeInBytes") } ?: 0L,
+            extra = mapOf("market" to Xodus.market(), "access" to kind.orEmpty(), "pc" to flag(installable), "cloud" to flag(streams)) +
+                (external?.let { mapOf("externalLauncher" to it) } ?: emptyMap()),
         )
     }
 
@@ -169,10 +169,10 @@ val CatalogItem.xboxCloudId: String get() = extra["cloudId"]?.takeIf { it.isNotE
 
 internal fun mergeEditions(games: List<CatalogItem>): List<CatalogItem> {
     fun key(title: String) = title.lowercase().replace(Regex("[^a-z0-9]+"), "")
-    val cloudOnly = games.filter { !it.xboxPc && it.xboxCloud }.groupBy { key(it.title) }
+    val cloudOnly = games.filter { !it.xboxPc && it.xboxExternalLauncher == null && it.xboxCloud }.groupBy { key(it.title) }
     val folded = HashSet<String>()
     val merged = games.map { game ->
-        if (!game.xboxPc || game.xboxCloud) game
+        if ((!game.xboxPc && game.xboxExternalLauncher == null) || game.xboxCloud) game
         else cloudOnly[key(game.title)]?.firstOrNull()?.let { console ->
             folded.add(console.id)
             game.copy(extra = game.extra + mapOf("cloud" to "1", "cloudId" to console.id))

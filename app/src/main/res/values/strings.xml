@@ -3834,4 +3834,9 @@
     <string name="stores_gamejolt_filter_status">Status</string>
     <string name="stores_gamejolt_filter_partners">Partners</string>
     <string name="stores_gamejolt_followed">Followed games</string>
+    <string name="stores_publisher_install">Install through %1$s</string>
+    <string name="stores_publisher_manage">Manage in %1$s</string>
+    <string name="stores_publisher_uninstall">Uninstall the game in %1$s. DroidDeck will refresh its entry when the client closes.</string>
+    <string name="stores_xbox_external_install">External launcher required</string>
+    <string name="stores_xbox_external_note">This Xbox package only redirects to another launcher and does not contain the game. Install and launch the game through its publisher’s launcher.</string>
 </resources>

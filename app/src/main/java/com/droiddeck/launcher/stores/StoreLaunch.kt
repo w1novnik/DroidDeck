@@ -99,6 +99,7 @@ object StoreLaunch {
         val result = try {
             val folder = StoreInstallRoot.gameFolders(app).firstOrNull { f -> StoreGameSidecar.read(f)?.let { it.store == Store.EPIC && it.id == id } == true }
             val sidecar = folder?.let { StoreGameSidecar.read(it) }
+            if (PublisherLaunchers.managed(sidecar)) return CodeResult(false, "publisher-client")
             sidecar?.let { refreshLauncher(folder, it) }
             val options = sidecar?.epic
             if (folder == null) CodeResult(false, "not-installed")

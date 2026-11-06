@@ -75,6 +75,7 @@ internal class XboxInstaller(private val app: Context, private val item: Catalog
                 XboxContent.complete(app, item, folder)
                 return folder.path
             }
+            check(!XboxManifest.read(folder).placeholder) { app.getString(com.droiddeck.launcher.R.string.stores_xbox_external_note) }
             val exe = executable(folder)
             StoreInstalls.complete(app, folder, StoreGameSidecar(Store.XBOX, item.id, item.title, exe,
                 installVersion = XboxManifest.read(folder).version, installedAt = System.currentTimeMillis(), cover = item.tallImageUrl, hero = item.imageUrl,

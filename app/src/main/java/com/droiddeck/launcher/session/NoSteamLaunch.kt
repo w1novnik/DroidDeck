@@ -56,6 +56,8 @@ object NoSteamLaunch {
     }
 
     fun nameFor(program: String?, args: List<String>): String? = when (program) {
+        com.droiddeck.launcher.stores.PublisherLaunchers.PROGRAM -> args.firstOrNull()?.takeIf { it in setOf("ubisoft", "ea") }
+            ?.let(com.droiddeck.launcher.stores.PublisherLaunchers::label)
         EPIC -> Library.EPIC_LAUNCHER_NAME
         BATTLENET -> args.getOrNull(args.indexOf("launch") + 1)?.takeIf { args.contains("launch") }?.let { names[it] } ?: com.droiddeck.launcher.stores.Store.BATTLENET.label
         PROTON_RUN -> args.getOrNull(args.indexOf("--app") + 1)?.takeIf { args.contains("--app") }?.let { names[it] }

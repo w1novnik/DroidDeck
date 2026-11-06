@@ -29,6 +29,7 @@ internal object XboxRuntime {
         val game = StoreInstallRoot.gameFolders(app).mapNotNull { folder ->
             StoreGameSidecar.read(folder)?.takeIf { it.store == Store.XBOX && it.id == id && it.isInstalled }?.let { folder to it }
         }.firstOrNull() ?: error("Xbox game is not installed")
+        check(!XboxManifest.read(game.first).placeholder) { app.getString(com.droiddeck.launcher.R.string.stores_xbox_external_note) }
         val (account, token, current, credentials) = XboxCredentials.lifecycle(app) { epoch ->
             val account = StoreAccounts.signedInAs(app, Store.XBOX) ?: error("Sign in to Xbox before playing")
             synchronized(state) { Authorization(account, launches.begin(id, account, session), generation, epoch) }

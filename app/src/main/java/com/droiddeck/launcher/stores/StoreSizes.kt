@@ -81,7 +81,9 @@ object StoreSizes {
             CompletableFuture.supplyAsync({
                 val c = cache(app, game.sidecar.store)
                 c.get("disk:${game.sidecar.id}", version)
-                    ?: game.folder.walkTopDown().filter { it.isFile && !it.name.startsWith(".droiddeck") }
+                    ?: (if (PublisherLaunchers.managed(game.sidecar)) game.sidecar.extra["publisherGamePath"]?.let {
+                        com.droiddeck.launcher.frontend.AddedGames.hostPath(app, it)
+                    } ?: game.folder else game.folder).walkTopDown().filter { it.isFile && !it.name.startsWith(".droiddeck") }
                         .sumOf { it.length() }.also { c.put("disk:${game.sidecar.id}", version, it) }
             }, pool).thenApply { it.takeIf { bytes -> bytes > 0 } }.exceptionally { error ->
                 Log.w(TAG, "$key: disk size resolution failed", error)

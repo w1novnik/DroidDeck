@@ -15,6 +15,8 @@ import com.droiddeck.launcher.stores.StoresState
 import com.droiddeck.launcher.stores.download.DownloadEntry
 import com.droiddeck.launcher.stores.download.DownloadQueue
 import com.droiddeck.launcher.stores.mergeItems
+import com.droiddeck.launcher.stores.PublisherLaunchers
+import com.droiddeck.launcher.stores.patchItems
 
 object EpicBackend : StoreBackend, EpicLaunchSupport {
     override val store: Store = Store.EPIC
@@ -79,12 +81,34 @@ object EpicBackend : StoreBackend, EpicLaunchSupport {
             StoresState.logLine("Epic: \"${item.title}\" is not in your library")
             return
         }
-        val folder = StoreInstallRoot.folderFor(app, Store.EPIC, item.id, item.title, root)
-        val entry = DownloadEntry(
-            Store.EPIC, item.id, item.title, cover = item.imageUrl, bytesTotal = item.sizeBytes,
-            location = StoreInstallRoot.labelFor(app, folder),
-        )
-        DownloadQueue.enqueue(app, entry) { EpicInstaller(app, item, folder) }
+        Thread({
+            try {
+                val token = EpicCredentialStore.getValidAccessToken(app) ?: error("Sign in to Epic before installing.")
+                val namespace = item.extra.getValue("namespace")
+                val catalogId = item.extra.getValue("catalogItemId")
+                val external = EpicApiClient.getCustomAttribute(token, namespace, catalogId, "ThirdPartyManagedApp")
+                    ?: EpicApiClient.getCustomAttribute(token, namespace, catalogId, "ThirdPartyManagedProvider")
+                val provider = PublisherLaunchers.epicProvider(external) ?: if (
+                    EpicApiClient.getCustomAttribute(token, namespace, catalogId, "partnerLinkType").equals("ubisoft", true)
+                ) "ubisoft" else null
+                if (provider != null) {
+                    val gameId = if (provider == "ubisoft") EpicApiClient.getCustomAttribute(token, namespace, catalogId, "GameID").orEmpty() else ""
+                    val tagged = item.copy(sizeBytes = 0, extra = item.extra + mapOf("publisherLauncher" to provider, "publisherGameId" to gameId))
+                    StoresState.post {
+                        StoresState.library[store]?.let { StoresState.library[store] = patchItems(it, listOf(tagged)) }
+                        StoresState.found[store]?.let { StoresState.found[store] = patchItems(it, listOf(tagged)) }
+                    }
+                    PublisherLaunchers.request(app, tagged, root, provider)
+                    return@Thread
+                }
+                val folder = StoreInstallRoot.folderFor(app, Store.EPIC, item.id, item.title, root)
+                val entry = DownloadEntry(Store.EPIC, item.id, item.title, cover = item.imageUrl, bytesTotal = item.sizeBytes,
+                    location = StoreInstallRoot.labelFor(app, folder))
+                DownloadQueue.enqueue(app, entry) { EpicInstaller(app, item, folder) }
+            } catch (error: Exception) {
+                DownloadQueue.recordFailed(app, DownloadEntry(store, item.id, item.title), error.message ?: "Epic installation could not start.") { install(app, item, root) }
+            }
+        }, "epic-publisher").start()
     }
 
     override fun uninstall(context: Context, game: InstalledStoreGame) {}

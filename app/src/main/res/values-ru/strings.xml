@@ -3837,4 +3837,9 @@
     <string name="stores_gamejolt_filter_status">Статус</string>
     <string name="stores_gamejolt_filter_partners">Партнёры</string>
     <string name="stores_gamejolt_followed">Отслеживаемые игры</string>
+    <string name="stores_publisher_install">Установить через %1$s</string>
+    <string name="stores_publisher_manage">Управление в %1$s</string>
+    <string name="stores_publisher_uninstall">Удалите игру в %1$s. DroidDeck обновит её запись после закрытия клиента.</string>
+    <string name="stores_xbox_external_install">Требуется сторонний лаунчер</string>
+    <string name="stores_xbox_external_note">Этот пакет Xbox только перенаправляет в другой лаунчер и не содержит саму игру. Установите и запустите игру через лаунчер её издателя.</string>
 </resources>

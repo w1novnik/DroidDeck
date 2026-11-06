@@ -1010,7 +1010,8 @@ class FrontEndActivity : ComponentActivity() {
 
     private fun startSessionOrWait(next: Intent): Boolean {
         val started = startSession(next, steamSession = next.hasExtra(SessionService.EXTRA_STEAM_URL) ||
-            next.getStringExtra(SessionService.EXTRA_PROGRAM) in setOf(com.droiddeck.launcher.session.NoSteamLaunch.PROTON_RUN, com.droiddeck.launcher.session.NoSteamLaunch.BATTLENET))
+            next.getStringExtra(SessionService.EXTRA_PROGRAM) in setOf(com.droiddeck.launcher.session.NoSteamLaunch.PROTON_RUN, com.droiddeck.launcher.session.NoSteamLaunch.BATTLENET,
+                com.droiddeck.launcher.stores.PublisherLaunchers.PROGRAM))
         if (!started && (busy || LinuxRuntimeInstaller.isBusy())) android.widget.Toast.makeText(this, R.string.main_wait_install_game, android.widget.Toast.LENGTH_SHORT).show()
         return started
     }
@@ -1269,6 +1270,7 @@ class FrontEndActivity : ComponentActivity() {
                                 .putExtra(SessionService.EXTRA_PROGRAM_ARGS, app.args.toTypedArray()))
                         },
                         onBattleNet = { openBattleNet() },
+                        onPublisherLauncher = { openPublisherLauncher(it) },
                         onFlatpakApp = { id, name ->
                             Library.flatpakNames[id] = name
                             startActivity(Intent(this, SessionActivity::class.java)
@@ -2211,6 +2213,21 @@ class FrontEndActivity : ComponentActivity() {
         packageRows = catalog?.map { PackageRow(it.id, it.kind, it.notes) }
         desktopInstalled = DesktopCatalog.desktopInstalled(this)
         desktopPresent = DesktopCatalog.desktopPresent(this)
+    }
+
+    private fun openPublisherLauncher(launch: com.droiddeck.launcher.stores.PublisherLaunchers.Launch) {
+        val program = com.droiddeck.launcher.stores.PublisherLaunchers.PROGRAM
+        val next = Intent(this, SessionActivity::class.java)
+            .putExtra(SessionService.EXTRA_MODE, SessionService.MODE_RUN)
+            .putExtra(SessionService.EXTRA_PROGRAM, program)
+            .putExtra(SessionService.EXTRA_PROGRAM_ARGS, arrayOf(launch.provider, "--request", launch.request))
+        when {
+            !SessionState.running -> startSessionOrWait(next)
+            SessionState.program == program && SessionState.programArgs.firstOrNull() == launch.provider ->
+                startActivity(Intent(this, SessionActivity::class.java).setAction(SessionService.ACTION_RESUME)
+                    .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
+            else -> pendingSwitch = next
+        }
     }
 
     private fun openBattleNet(args: List<String> = emptyList()) {

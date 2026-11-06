@@ -21,6 +21,14 @@ internal fun XboxStoreDialogs(
     pending: XboxBackend.PackageChoice? = XboxBackend.packageChoice,
 ) {
     val ctx = LocalContext.current
+    XboxBackend.externalLauncher?.let {
+        AlertDialog(
+            onDismissRequest = { XboxBackend.explainExternalLauncher(null) },
+            title = { Text(stringResource(R.string.stores_xbox_external_install)) },
+            text = { Text(stringResource(R.string.stores_xbox_external_note)) },
+            confirmButton = { TextButton(onClick = { XboxBackend.explainExternalLauncher(null) }, modifier = Modifier.focusGlide(CircleShape)) { Text(stringResource(android.R.string.ok)) } },
+        )
+    }
     content?.let {
         AlertDialog(
             onDismissRequest = { XboxContent.dismiss() },

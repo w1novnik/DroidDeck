@@ -216,6 +216,8 @@ def launch(command, env):
     if found is None or found[1].get('store') != 'xbox':
         return None
     folder, sidecar = found
+    if (sidecar.get('extra') or {}).get('publisherManaged') == '1':
+        return None
     for name in DLLS:
         if not (RUNTIME / 'windows' / name).is_file():
             raise RuntimeError('Xbox Windows runtime is missing; update the Linux runtime')

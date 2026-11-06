@@ -1,0 +1,406 @@
+#!/usr/bin/python3
+import json
+import os
+from pathlib import Path
+import re
+import runpy
+import subprocess
+import sys
+import time
+import unicodedata
+import urllib.parse
+import urllib.request
+import xml.etree.ElementTree as ET
+import zlib
+
+BIN = Path(__file__).resolve().parent
+HOME = Path(os.environ.get("HOME") or "/root")
+STEAM = Path(os.environ.get("STEAM_COMPAT_CLIENT_INSTALL_PATH") or HOME / ".local/share/Steam")
+STATE = HOME / ".local/share/droiddeck-publishers"
+REQUEST = ".droiddeck-publisher-request.json"
+RESULT = ".droiddeck-publisher-result.json"
+PROVIDERS = {
+    "ubisoft": {
+        "url": "https://ubistatic3-a.akamaihd.net/orbit/launcher_installer/UbisoftConnectInstaller.exe",
+        "setup": "UbisoftConnectInstaller.exe", "args": ["/S"],
+        "clients": ["Program Files (x86)/Ubisoft/Ubisoft Game Launcher/upc.exe",
+                    "Program Files (x86)/Ubisoft/Ubisoft Game Launcher/UbisoftConnect.exe"],
+        "games": "Program Files (x86)/Ubisoft/Ubisoft Game Launcher/games",
+    },
+    "ea": {
+        "url": "https://origin-a.akamaihd.net/EA-Desktop-Client-Download/installer-releases/EAappInstaller.exe",
+        "setup": "EAappInstaller.exe", "args": ["/silent"],
+        "clients": ["Program Files/Electronic Arts/EA Desktop/EA Desktop/EADesktop.exe",
+                    "Program Files/Electronic Arts/EA Desktop/EA Desktop/EALauncher.exe"],
+        "games": "Program Files/EA Games",
+    },
+}
+SKIP = re.compile(r"(?i)setup|unins|redist|installer|crash|helper|updater|report|gdkstub|ubisoftconnect|eadesktop|uplaylaunch")
+
+
+def key(text):
+    text = text.replace("™", "").replace("®", "").replace("©", "")
+    return "".join(c for c in unicodedata.normalize("NFKC", text).casefold() if c.isalnum())
+
+
+def prefix_id(provider):
+    return str(zlib.crc32(("droiddeck-publisher:" + provider).encode()) | 0x80000000)
+
+
+def prefix(provider):
+    return STEAM / "steamapps/compatdata" / prefix_id(provider) / "pfx"
+
+
+def inside(path, root):
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def windows_path(value, pfx):
+    value = value.strip().strip('"').replace("\\", "/")
+    if not re.match(r"^[A-Za-z]:/", value) or ".." in value.split("/"):
+        return None
+    if value[0].lower() == "z":
+        return Path(value[2:])
+    base = pfx / "drive_c" if value[0].lower() == "c" else pfx / "dosdevices" / (value[0].lower() + ":")
+    return base / value[3:]
+
+
+def registry(text):
+    sections, current = {}, None
+    for line in text.splitlines():
+        match = re.match(r"^\[([^]]+)\]", line)
+        if match:
+            current = sections.setdefault(match[1].replace("\\\\", "\\").lower(), {})
+        elif current is not None:
+            match = re.match(r'^"([^"\\]+)"="((?:\\.|[^"\\])*)"\s*$', line)
+            if match:
+                current[match[1].lower()] = match[2].replace('\\"', '"').replace("\\\\", "\\")
+    return sections
+
+
+def executable(folder):
+    seen = 0
+    candidates = []
+    for root, dirs, files in os.walk(folder, followlinks=False):
+        dirs[:] = sorted(d for d in dirs if not SKIP.search(d) and len(Path(root).relative_to(folder).parts) < 4)
+        for name in files:
+            seen += 1
+            if seen > 5000:
+                break
+            path = Path(root) / name
+            if name.lower().endswith(".exe") and not SKIP.search(name) and inside(path, folder):
+                with path.open("rb") as source:
+                    if source.read(2) == b"MZ":
+                        candidates.append(path.relative_to(folder).as_posix())
+        if seen > 5000:
+            break
+    return min(candidates, key=lambda name: (name.count("/"), len(name), name.casefold())) if candidates else None
+
+
+def ea_metadata(folder):
+    source = folder / "__Installer/installerdata.xml"
+    if not source.is_file() or source.stat().st_size > 1_048_576:
+        return None
+    data = source.read_bytes()
+    if b"<!DOCTYPE" in data.upper() or b"<!ENTITY" in data.upper():
+        return None
+    try:
+        xml = ET.fromstring(data)
+    except ET.ParseError:
+        return None
+    ids = [node.text.strip() for node in xml.iter() if node.tag.split("}")[-1].lower() == "contentid" and node.text]
+    ids = [value for value in ids if re.fullmatch(r"[A-Za-z0-9._:-]{1,160}", value)]
+    names = [node.text.strip() for node in xml.iter() if node.tag.split("}")[-1].lower() in ("gametitle", "displayname") and node.text]
+    return (ids[0], names[0] if names else folder.name) if ids else None
+
+
+def records(provider, download_root):
+    pfx = prefix(provider)
+    sections = {}
+    for file in (pfx / "system.reg", pfx / "user.reg"):
+        if file.is_file() and file.stat().st_size <= 32 * 1024 * 1024:
+            sections.update(registry(file.read_text(encoding="utf-8", errors="replace")))
+    allowed = [pfx, Path(download_root), (pfx / "drive_c" / PROVIDERS[provider]["games"]).resolve()]
+    uninstalls = [values for section, values in sections.items() if "\\uninstall\\" in section]
+    found = []
+    if provider == "ubisoft":
+        for section, values in sections.items():
+            match = re.search(r"\\ubisoft\\launcher\\installs\\([0-9]{1,12})$", "\\" + section)
+            if not match:
+                continue
+            folder = windows_path(values.get("installdir", ""), pfx)
+            if folder is None or not folder.is_dir() or not any(inside(folder, root) for root in allowed):
+                continue
+            title = next((row.get("displayname") for row in uninstalls
+                          if row.get("installlocation") and windows_path(row["installlocation"], pfx) == folder and row.get("displayname")), folder.name)
+            exe = executable(folder)
+            if exe:
+                found.append({"offerId": match[1], "title": title, "path": str(folder), "executable": exe})
+    else:
+        folders = set()
+        for row in uninstalls:
+            folder = windows_path(row.get("installlocation", ""), pfx)
+            if folder is not None:
+                folders.add(folder)
+        for base in (pfx / "drive_c" / PROVIDERS[provider]["games"], Path(download_root)):
+            if base.is_dir():
+                folders.update(folder for folder in base.iterdir() if folder.is_dir())
+        for folder in sorted(folders):
+            if not folder.is_dir() or not any(inside(folder, root) for root in allowed):
+                continue
+            metadata = ea_metadata(folder)
+            if metadata is None:
+                continue
+            exe = executable(folder)
+            if exe:
+                title = next((row["displayname"] for row in uninstalls if row.get("displayname") and
+                              windows_path(row.get("installlocation", ""), pfx) == folder), metadata[1])
+                found.append({"offerId": metadata[0], "title": title, "path": str(folder), "executable": exe})
+    return found
+
+
+def choose(records, title, offer=""):
+    matches = [record for record in records if record["offerId"] == offer] if offer else [
+        record for record in records if key(record["title"]) == key(title) or key(Path(record["path"]).name) == key(title)]
+    unique = {(record["offerId"], record["path"]): record for record in matches}
+    return next(iter(unique.values())) if len(unique) == 1 else None
+
+
+def atomic_json(path, data):
+    temp = path.with_name(path.name + ".tmp")
+    temp.write_text(json.dumps(data), encoding="utf-8")
+    os.replace(temp, path)
+
+
+def download(url, target):
+    part = target.with_suffix(".part")
+    try:
+        with urllib.request.urlopen(url, timeout=60) as source, part.open("wb") as out:
+            if urllib.parse.urlparse(source.geturl()).scheme != "https":
+                raise ValueError("The launcher installer redirected to an insecure download")
+            total = 0
+            while True:
+                chunk = source.read(1 << 20)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > 512 * 1024 * 1024:
+                    raise ValueError("The launcher installer is too large")
+                out.write(chunk)
+            out.flush()
+            os.fsync(out.fileno())
+        with part.open("rb") as source:
+            if total < 1024 or source.read(2) != b"MZ":
+                raise ValueError("The launcher download is not a Windows installer")
+        os.replace(part, target)
+    finally:
+        part.unlink(missing_ok=True)
+
+
+def launcher(provider):
+    for path in PROVIDERS[provider]["clients"]:
+        file = prefix(provider) / "drive_c" / path
+        if file.is_file():
+            with file.open("rb") as source:
+                if source.read(2) == b"MZ":
+                    return file
+    return None
+
+
+def command(provider, program, args=(), verb="waitforexitandrun"):
+    return [str(BIN / "droiddeck-proton-run"), "--prefix", prefix_id(provider), "--verb", verb, str(program)] + list(args)
+
+
+def environment():
+    env = dict(os.environ, DROIDDECK_PUBLISHER_ACTIVE="1")
+    for name in ("SteamAppId", "SteamGameId", "STEAM_COMPAT_DATA_PATH", "BL_STORE_PROTON"):
+        env.pop(name, None)
+    return env
+
+
+def ensure_launcher(provider, download_root):
+    client = launcher(provider)
+    if client:
+        return client
+    config = PROVIDERS[provider]
+    cache = STATE / provider
+    cache.mkdir(parents=True, exist_ok=True)
+    setup = cache / config["setup"]
+    print("Downloading " + ("Ubisoft Connect" if provider == "ubisoft" else "EA app") + " installer", flush=True)
+    download(config["url"], setup)
+    game_root = prefix(provider) / "drive_c" / config["games"]
+    if not os.path.lexists(game_root):
+        game_root.parent.mkdir(parents=True, exist_ok=True)
+        game_root.symlink_to(download_root, target_is_directory=True)
+    print("Installing " + provider + " launcher", flush=True)
+    child = subprocess.Popen(command(provider, setup, config["args"], "run"), env=environment())
+    deadline = time.monotonic() + 600
+    try:
+        while time.monotonic() < deadline:
+            client = launcher(provider)
+            if client and child.poll() is not None:
+                return client
+            if child.poll() is not None and child.returncode != 0:
+                raise RuntimeError("The publisher launcher installer failed (%d)" % child.returncode)
+            time.sleep(1)
+        raise RuntimeError("The publisher launcher installer did not finish")
+    finally:
+        if child.poll() is None:
+            child.terminate()
+        if child.poll() is not None:
+            child.wait()
+
+
+def launch_uri(provider, offer, install=False):
+    if provider == "ubisoft":
+        if not re.fullmatch(r"[0-9]{1,12}", offer):
+            raise ValueError("Invalid Ubisoft game ID")
+        return "uplay://%s/%s%s" % ("install" if install else "launch", offer, "" if install else "/0")
+    if not re.fullmatch(r"[A-Za-z0-9._:-]{1,160}", offer):
+        raise ValueError("Invalid EA game ID")
+    return "origin2://game/launch?" + urllib.parse.urlencode({"offerIds": offer, "autoDownload": "1"})
+
+
+def epic_uri(provider, request):
+    channel = os.environ.get("BL_LAUNCH_DIR")
+    if request.get("store") != "epic" or not channel:
+        return None
+    helper = runpy.run_path(str(BIN / "droiddeck-store-launch"))
+    answer = helper["ask"](Path(channel) / "stores", {"op": "publisher-auth", "id": request["id"]}, timeout=30)
+    if not answer or not answer.get("ok"):
+        raise RuntimeError("Sign in to Epic again before linking this game to its publisher")
+    parameters = {"AUTH_PASSWORD": answer["code"], "AUTH_TYPE": "exchangecode", "epicusername": answer["displayName"],
+                  "epicuserid": answer["accountId"], "epiclocale": "en"}
+    if provider == "ea":
+        return "link2ea://launchgame/" + urllib.parse.quote(request["id"], safe="") + "?" + urllib.parse.urlencode(parameters)
+    offer = request.get("offerId") or request["id"]
+    if not re.fullmatch(r"[A-Za-z0-9._-]{1,240}", offer):
+        raise ValueError("Invalid Epic Ubisoft partner ID")
+    return "uplay://launch/" + urllib.parse.quote(offer, safe="") + "?" + urllib.parse.urlencode(parameters)
+
+
+def activate_subscription(provider, request):
+    channel = os.environ.get("BL_LAUNCH_DIR")
+    if provider == "ubisoft" and request.get("store") == "xbox" and request.get("subscription") and channel:
+        helper = runpy.run_path(str(BIN / "droiddeck-store-launch"))
+        helper["ask"](Path(channel) / "stores", {"op": "open-url", "url": "https://gamepass.ubisoft.com/"}, timeout=5)
+
+
+def run_client(provider, client, args, on_tick):
+    tools = runpy.run_path(str(BIN / "droiddeck-battlenet"))
+    child = subprocess.Popen(command(provider, client, args, "run"), env=environment())
+    clients = {"upc.exe", "ubisoftconnect.exe", "uplay.exe", "eadesktop.exe", "ealauncher.exe"}
+    background = tools["NOT_GAME"] | {"eabackgroundservice.exe", "eacefsubprocess.exe", "ealocalhostsvc.exe",
+                                      "uplaywebcore.exe", "upcwebcore.exe", "ubisoftgamelauncher.exe"}
+    startup = time.monotonic() + 180
+    seen, quiet = False, None
+    try:
+        while True:
+            processes = tools["wine_processes"](str(prefix(provider)))
+            active = any(tools["program"](argv) in clients or
+                         (tools["is_game"](argv) and tools["program"](argv) not in background) for _, argv in processes)
+            now = time.monotonic()
+            on_tick()
+            code = child.poll()
+            if active:
+                seen, quiet = True, None
+            elif seen:
+                quiet = now if quiet is None else quiet
+                if now - quiet >= 5:
+                    return code or 0
+            elif code not in (None, 0) or now >= startup:
+                return code or 1
+            time.sleep(2)
+    finally:
+        if child.poll() is not None:
+            child.wait()
+
+
+def run(provider, folder):
+    import fcntl
+    request_file = folder / REQUEST
+    if not request_file.is_file() or request_file.stat().st_size > 1_048_576:
+        raise ValueError("Publisher installation request is missing")
+    request = json.loads(request_file.read_text(encoding="utf-8"))
+    if request.get("schema") != 1 or request.get("provider") != provider or not request.get("title"):
+        raise ValueError("Invalid publisher installation request")
+    download_root = Path(request["downloadRoot"])
+    if not download_root.is_absolute() or ".." in download_root.parts:
+        raise ValueError("Invalid publisher download folder")
+    download_root.mkdir(parents=True, exist_ok=True)
+    state = STATE / provider
+    state.mkdir(parents=True, exist_ok=True)
+    with (state / "client.lock").open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise RuntimeError("This publisher launcher is already open. Return to its running session.")
+        client = ensure_launcher(provider, download_root)
+        offer = request.get("offerId", "")
+        result = folder / RESULT
+        if result.is_file() and result.stat().st_size <= 65_536:
+            saved = json.loads(result.read_text(encoding="utf-8"))
+            if saved.get("provider") == provider and saved.get("id") == request["id"]:
+                offer = saved.get("offerId", offer)
+        installed = choose(records(provider, download_root), request["title"], offer)
+        action = request.get("action", "install")
+        if action not in ("install", "manage", "uninstall"):
+            raise ValueError("Invalid publisher action")
+        if action == "install" and not installed:
+            activate_subscription(provider, request)
+        uri = None if action != "install" else launch_uri(provider, installed["offerId"]) if installed else epic_uri(provider, request)
+        if action == "install" and uri is None and offer:
+            uri = launch_uri(provider, offer, install=True)
+        print("Open the publisher library to install or play: " + request["title"], flush=True)
+        last_scan = 0
+        def installed_result():
+            nonlocal last_scan
+            now = time.monotonic()
+            if now - last_scan < 10:
+                return
+            last_scan = now
+            current = choose(records(provider, download_root), request["title"], offer)
+            if current:
+                atomic_json(result, dict(current, schema=1, provider=provider, store=request["store"], id=request["id"]))
+        code = run_client(provider, client, [uri] if uri else [], installed_result)
+        if code != 0:
+            return code
+        installed = choose(records(provider, download_root), request["title"], offer)
+        if installed:
+            atomic_json(result, dict(installed, schema=1, provider=provider, store=request["store"], id=request["id"]))
+        elif action == "uninstall":
+            atomic_json(result, dict(schema=1, provider=provider, store=request["store"], id=request["id"], removed=True))
+        return 0
+
+
+def dispatch(argv, env):
+    if env.get("DROIDDECK_PUBLISHER_ACTIVE") == "1":
+        return None
+    helper = runpy.run_path(str(BIN / "droiddeck-store-launch"))
+    found = helper["find_store_game"](argv)
+    if not found:
+        return None
+    folder, sidecar = found
+    extra = sidecar.get("extra") or {}
+    provider = extra.get("publisherLauncher")
+    if provider not in PROVIDERS or extra.get("publisherManaged") != "1":
+        return None
+    return subprocess.call([sys.executable, str(BIN / "droiddeck-publisher"), provider, "--request", str(folder)], env=env)
+
+
+def main(argv):
+    if len(argv) != 3 or argv[0] not in PROVIDERS or argv[1] != "--request":
+        raise ValueError("usage: droiddeck-publisher {ubisoft|ea} --request GAME_FOLDER")
+    return run(argv[0], Path(argv[2]))
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except (OSError, ValueError, RuntimeError) as error:
+        print("droiddeck-publisher: " + str(error), file=sys.stderr)
+        sys.exit(1)
