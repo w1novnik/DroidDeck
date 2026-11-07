@@ -23,7 +23,7 @@ internal object XboxLibraryCache {
     fun clear(app: Context) { prefs(app).edit().remove("library").commit() }
 
     internal fun encode(account: String, market: String, games: List<CatalogItem>, now: Long = System.currentTimeMillis()): String =
-        JSONObject().put("schema", 3).put("account", account).put("market", market).put("savedAt", now)
+        JSONObject().put("schema", 4).put("account", account).put("market", market).put("savedAt", now)
             .put("games", JSONArray().apply {
                 for (game in games) put(JSONObject().put("id", game.id).put("title", game.title)
                     .put("image", game.imageUrl).put("poster", game.tallImageUrl).put("description", game.description)
@@ -36,7 +36,7 @@ internal object XboxLibraryCache {
     internal fun decode(text: String?, account: String, market: String, now: Long = System.currentTimeMillis()): Snapshot? = runCatching {
         require(text != null && text.length <= 8_000_000)
         val json = JSONObject(text)
-        require(json.getInt("schema") == 3 && json.getString("account") == account && json.getString("market") == market)
+        require(json.getInt("schema") == 4 && json.getString("account") == account && json.getString("market") == market)
         val savedAt = json.getLong("savedAt")
         require(savedAt > 0 && savedAt <= now + 60_000)
         val rows = json.getJSONArray("games")

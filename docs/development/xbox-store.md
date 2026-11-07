@@ -9,6 +9,13 @@ use these Ubisoft packages. Xbox EA bridge products use the
 `ElectronicArtsMobile.*` package family. A real desktop MSIXVC game remains on
 the regular installer regardless of its publisher.
 
+Storefront bundles may have no packages themselves. Resolve their catalog
+`BundledSkus` entries marked `IsPrimary` before classifying the PC payload;
+keep the card, ownership and cloud rights on the licensed parent product ID.
+Fetched child metadata does not add unlicensed games to the library. Bundle
+resolution is bounded and cycle-safe. Library cache schema 4 invalidates older
+snapshots that omitted these cards.
+
 These entries use the common `PublisherLaunchers` / `droiddeck-publisher` path,
 also used by explicitly identified Epic Ubisoft/EA partner games. Install opens
 a run-mode session, downloads the official Ubisoft Connect or EA app installer
@@ -25,6 +32,13 @@ registering a launcher shortcut. Play uses the native publisher product ID in
 the same client prefix; updates, cloud saves and license checks belong to that
 client. Manage and uninstall open the publisher client. Cloud streaming remains
 available independently, including a separate console edition when present.
+
+EA client discovery supports both the classic installation directory and numeric
+version directories under `Program Files/Electronic Arts/EA Desktop`. Prefer a
+complete `EALauncher.exe` / `EADesktop.exe` pair and let `EALauncher.exe` start the
+client. Suppress installer auto-launch so the helper starts the detected client
+after setup. The [Lutris EA installer](https://lutris.net/games/install/36644/view)
+also accounts for the version-directory layout and uses `EAX_LAUNCH_CLIENT=0`.
 
 An old downloaded placeholder cannot complete installation or use Xodus launch
 preparation. Full Android UI, account activation, client installation and game

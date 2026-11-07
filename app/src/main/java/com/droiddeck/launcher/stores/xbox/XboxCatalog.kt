@@ -73,7 +73,28 @@ internal object XboxCatalog {
     private fun timestamp(value: String): Instant = java.time.OffsetDateTime.parse(value).toInstant()
 
     fun products(ids: List<String>, access: Map<String, String> = emptyMap(), market: String = Xodus.market()): List<CatalogItem> {
-        return rawProducts(ids, market).mapNotNull { product(it, access) }
+        val requested = ids.map { it.uppercase() }.toSet()
+        val products = productsWithBundles(ids, market)
+        val known = products.associateBy { it.getString("ProductId").uppercase() }
+        return products.filter { it.getString("ProductId").uppercase() in requested }.mapNotNull { product(it, access, known = known) }
+    }
+
+    fun productsWithBundles(ids: List<String>, market: String = Xodus.market()): List<JSONObject> {
+        val found = rawProducts(ids, market).associateByTo(LinkedHashMap()) { it.getString("ProductId").uppercase() }
+        val requested = ids.map { it.uppercase() }.toMutableSet()
+        repeat(3) {
+            val missing = found.values.flatMap(XboxPackagePolicy::primaryProducts).distinct().filter { it !in requested }
+            if (missing.isEmpty()) return found.values.toList()
+            check(requested.size + missing.size <= 20_000) { "Xbox bundle catalog is too large." }
+            requested.addAll(missing)
+            rawProducts(missing, market).forEach { found[it.getString("ProductId").uppercase()] = it }
+        }
+        return found.values.toList()
+    }
+
+    internal fun libraryItems(products: List<JSONObject>, access: Map<String, String>, cloud: XboxCloudCatalog? = null): List<CatalogItem> {
+        val known = products.associateBy { it.getString("ProductId").uppercase() }
+        return products.filter { it.getString("ProductId").uppercase() in access }.mapNotNull { product(it, access, cloud, known) }
     }
 
     fun rawProducts(ids: List<String>, market: String = Xodus.market()): List<JSONObject> {
@@ -97,15 +118,16 @@ internal object XboxCatalog {
         return products(objects(body.optJSONArray("productsList")).map { it.optString("productId") }.take(24), access)
     }
 
-    internal fun product(json: JSONObject, access: Map<String, String>, cloud: XboxCloudCatalog? = null): CatalogItem? {
+    internal fun product(json: JSONObject, access: Map<String, String>, cloud: XboxCloudCatalog? = null, known: Map<String, JSONObject> = emptyMap()): CatalogItem? {
         val id = json.optString("ProductId").uppercase()
         if (!productId.matches(id) || json.optString("ProductType") != "Game") return null
         val localized = objects(json.optJSONArray("LocalizedProperties")).firstOrNull() ?: return null
         val title = localized.optString("ProductTitle").takeIf { it.isNotBlank() } ?: return null
-        val pc = XboxPackagePolicy.packages(json).filter { XboxPackagePolicy.desktop(it) && it.optString("PackageFormat").equals("MSIXVC", true) }
+        val sources = XboxPackagePolicy.pcProducts(json, known)
+        val pc = sources.flatMap(XboxPackagePolicy::packages).filter { XboxPackagePolicy.desktop(it) && it.optString("PackageFormat").equals("MSIXVC", true) }
         val playable = pc.filterNot(XboxPackagePolicy::placeholder)
         val installable = playable.isNotEmpty()
-        val external = if (installable) null else XboxPackagePolicy.launcher(pc) ?: XboxPackagePolicy.externalProduct(json)
+        val external = if (installable) null else XboxPackagePolicy.launcher(pc) ?: sources.firstNotNullOfOrNull(XboxPackagePolicy::externalProduct)
         val streams = cloud?.streams(id, access[id].orEmpty()) == true
         if (!installable && !streams && external == null) return null
         val images = objects(localized.optJSONArray("Images"))

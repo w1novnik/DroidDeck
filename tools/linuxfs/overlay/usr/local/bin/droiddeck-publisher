@@ -29,9 +29,9 @@ PROVIDERS = {
     },
     "ea": {
         "url": "https://origin-a.akamaihd.net/EA-Desktop-Client-Download/installer-releases/EAappInstaller.exe",
-        "setup": "EAappInstaller.exe", "args": ["/silent"],
-        "clients": ["Program Files/Electronic Arts/EA Desktop/EA Desktop/EADesktop.exe",
-                    "Program Files/Electronic Arts/EA Desktop/EA Desktop/EALauncher.exe"],
+        "setup": "EAappInstaller.exe", "args": ["/quiet", "/norestart", "EAX_LAUNCH_CLIENT=0"],
+        "clients": ["Program Files/Electronic Arts/EA Desktop/EA Desktop/EALauncher.exe",
+                    "Program Files/Electronic Arts/EA Desktop/EA Desktop/EADesktop.exe"],
         "games": "Program Files/EA Games",
     },
 }
@@ -201,13 +201,27 @@ def download(url, target):
         part.unlink(missing_ok=True)
 
 
+def client_executable(file):
+    if not file.is_file():
+        return False
+    with file.open("rb") as source:
+        return source.read(2) == b"MZ"
+
+
 def launcher(provider):
-    for path in PROVIDERS[provider]["clients"]:
-        file = prefix(provider) / "drive_c" / path
-        if file.is_file():
-            with file.open("rb") as source:
-                if source.read(2) == b"MZ":
-                    return file
+    drive = prefix(provider) / "drive_c"
+    candidates = [drive / path for path in PROVIDERS[provider]["clients"]]
+    if provider == "ea":
+        base = drive / "Program Files/Electronic Arts/EA Desktop"
+        versions = [folder for folder in base.iterdir() if folder.is_dir() and inside(folder, base) and
+                    re.fullmatch(r"[0-9]+(?:\.[0-9]+){2,4}", folder.name)] if base.is_dir() else []
+        versions.sort(key=lambda folder: tuple(map(int, folder.name.split("."))), reverse=True)
+        candidates = [folder / "EA Desktop" / name for folder in versions for name in ("EALauncher.exe", "EADesktop.exe")] + candidates
+    for file in candidates:
+        if provider == "ea" and file.name == "EALauncher.exe" and not client_executable(file.with_name("EADesktop.exe")):
+            continue
+        if client_executable(file):
+            return file
     return None
 
 
@@ -243,6 +257,7 @@ def ensure_launcher(provider, download_root):
         while time.monotonic() < deadline:
             client = launcher(provider)
             if client and child.poll() is not None:
+                print("Publisher client installed: " + str(client), flush=True)
                 return client
             if child.poll() is not None and child.returncode != 0:
                 raise RuntimeError("The publisher launcher installer failed (%d)" % child.returncode)
@@ -292,6 +307,7 @@ def activate_subscription(provider, request):
 
 def run_client(provider, client, args, on_tick):
     tools = runpy.run_path(str(BIN / "droiddeck-battlenet"))
+    print("Starting publisher client: " + str(client), flush=True)
     child = subprocess.Popen(command(provider, client, args, "run"), env=environment())
     clients = {"upc.exe", "ubisoftconnect.exe", "uplay.exe", "eadesktop.exe", "ealauncher.exe"}
     background = tools["NOT_GAME"] | {"eabackgroundservice.exe", "eacefsubprocess.exe", "ealocalhostsvc.exe",

@@ -28,7 +28,7 @@ class XboxLibraryCacheTest {
         val text = XboxLibraryCache.encode(account, "US", listOf(game("9AAAAAAAAAAA", false)), now)
         assertNull(XboxLibraryCache.decode(text, "other@example.test", "US", now))
         assertNull(XboxLibraryCache.decode(text, account, "GB", now))
-        for (schema in listOf(1, 2)) assertNull(XboxLibraryCache.decode(text.replace("\"schema\":3", "\"schema\":$schema"), account, "US", now))
+        for (schema in listOf(1, 2, 3)) assertNull(XboxLibraryCache.decode(text.replace("\"schema\":4", "\"schema\":$schema"), account, "US", now))
         assertNull(XboxLibraryCache.decode("invalid", account, "US", now))
         assertNull(XboxLibraryCache.decode(text, account, "US", now - 120_000))
     }

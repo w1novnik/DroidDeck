@@ -58,10 +58,10 @@ object XboxBackend : StoreBackend {
                 if (cached != null && !cached.needsRefresh(force)) { XboxGamertag.ensure(app); return@Thread }
                 val response = Xodus.run(app, listOf("library", "--json", "--market", market))
                 val licenses = XboxCatalog.access(response, account, market, report = { StoresState.logLine("Xbox: $it") })
-                val products = XboxCatalog.rawProducts(licenses.keys.toList(), market)
+                val products = XboxCatalog.productsWithBundles(licenses.keys.toList(), market)
                 val cloud = runCatching { XboxCatalog.cloudCatalog(market) }
                     .onFailure { StoresState.logLine("Xbox: cloud lists unavailable (${it.javaClass.simpleName})") }.getOrNull()
-                val games = mergeEditions(products.mapNotNull { XboxCatalog.product(it, licenses, cloud) }).sortedBy { it.title.lowercase() }
+                val games = mergeEditions(XboxCatalog.libraryItems(products, licenses, cloud)).sortedBy { it.title.lowercase() }
                 StoresState.logLine("Xbox: library catalog requested=${licenses.size} returned=${products.size} supported=${games.size} " +
                     "filtered=${products.size - games.size} backend-skipped=${response.optInt("skippedEntitlements")} " +
                     "pc=${games.count { it.xboxPc }} cloud=${games.count { it.xboxCloud }} cloud-only=${games.count { !it.xboxPc }} " +

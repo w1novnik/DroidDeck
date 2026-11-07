@@ -1,0 +1,11 @@
+{
+  "ProductId": "9PDCBPJ8C47K",
+  "ProductType": "Game",
+  "LocalizedProperties": [{"ProductTitle": "Prince of Persia The Lost Crown", "PublisherName": "Ubisoft"}],
+  "Properties": {"PackageFamilyName": ""},
+  "DisplaySkuAvailabilities": [{"Sku": {"Properties": {
+    "Packages": [],
+    "IsBundle": true,
+    "BundledSkus": [{"BigId": "9PJ8CKFDWWLF", "IsPrimary": true, "DisplayRank": 0}]
+  }}}]
+}

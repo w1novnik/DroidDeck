@@ -17,6 +17,66 @@ class XboxPackagePolicyTest {
         return XboxCatalog.objects(JSONArray(text))
     }
 
+    private fun bundle(): JSONObject = JSONObject(javaClass.getResourceAsStream("/xbox/ubisoft-pc-bundle.json")!!.bufferedReader().use { it.readText() })
+
+    @Test fun theLostCrownBundleKeepsTheLicensedCardAndUsesItsPrimaryPcProduct() {
+        val root = bundle()
+        val child = products().first()
+        assertNull(XboxCatalog.product(root, mapOf(root.getString("ProductId") to "owned")))
+        val cards = XboxCatalog.libraryItems(listOf(root, child), mapOf(root.getString("ProductId") to "owned"))
+        val card = cards.single()
+        assertEquals(root.getString("ProductId"), card.id)
+        assertEquals("ubisoft", card.xboxExternalLauncher)
+        assertTrue(card.owned)
+        assertFalse(card.xboxPc)
+        assertEquals(0L, card.sizeBytes)
+    }
+
+    @Test fun aBundleKeepsSubscriptionAndCloudRightsOnItsOwnId() {
+        val root = bundle()
+        val id = root.getString("ProductId")
+        val card = XboxCatalog.libraryItems(listOf(root, products().first()), mapOf(id to "gamepass"), XboxCloudCatalog(setOf(id), emptySet())).single()
+        assertEquals(id, card.id)
+        assertTrue(card.subscription)
+        assertTrue(card.xboxCloud)
+        assertFalse(card.owned)
+    }
+
+    @Test fun unlicensedPrimaryProductsAreNotAddedAsSeparateLibraryGames() {
+        val root = bundle()
+        val child = products().first()
+        assertTrue(XboxCatalog.libraryItems(listOf(root, child), emptyMap()).isEmpty())
+        assertEquals(listOf(child.getString("ProductId")), XboxCatalog.libraryItems(listOf(root, child), mapOf(child.getString("ProductId") to "owned")).map { it.id })
+    }
+
+    @Test fun optionalBundleContentsDoNotMakeTheBaseProductInstallable() {
+        val root = bundle()
+        root.getJSONArray("DisplaySkuAvailabilities").getJSONObject(0).getJSONObject("Sku").getJSONObject("Properties")
+            .getJSONArray("BundledSkus").getJSONObject(0).put("IsPrimary", false)
+        assertTrue(XboxPackagePolicy.primaryProducts(root).isEmpty())
+        assertTrue(XboxCatalog.libraryItems(listOf(root, products().first()), mapOf(root.getString("ProductId") to "owned")).isEmpty())
+    }
+
+    @Test fun missingOrCyclicBundleMetadataDoesNotInventAPcDownload() {
+        val root = bundle()
+        val id = root.getString("ProductId")
+        assertTrue(XboxCatalog.libraryItems(listOf(root), mapOf(id to "owned")).isEmpty())
+        root.getJSONArray("DisplaySkuAvailabilities").getJSONObject(0).getJSONObject("Sku").getJSONObject("Properties")
+            .getJSONArray("BundledSkus").getJSONObject(0).put("BigId", id)
+        assertTrue(XboxCatalog.libraryItems(listOf(root), mapOf(id to "owned")).isEmpty())
+    }
+
+    @Test fun aRealPrimaryPcPackageKeepsItsDownloadSizeAndBundleIdentity() {
+        val root = bundle()
+        val child = products().first()
+        application(child, "Game")
+        val card = XboxCatalog.libraryItems(listOf(root, child), mapOf(root.getString("ProductId") to "owned")).single()
+        assertEquals(root.getString("ProductId"), card.id)
+        assertTrue(card.xboxPc)
+        assertNull(card.xboxExternalLauncher)
+        assertEquals(10_612_736L, card.sizeBytes)
+    }
+
     private fun choice(product: JSONObject): JSONObject = JSONObject().put("productId", product.getString("ProductId"))
         .put("contentId", XboxPackagePolicy.packages(product).first().getString("ContentId"))
 

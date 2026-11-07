@@ -114,6 +114,7 @@ class PublisherLaunchersTest(unittest.TestCase):
         file = publisher.prefix('ea') / 'drive_c' / publisher.PROVIDERS['ea']['clients'][0]
         file.parent.mkdir(parents=True)
         file.write_bytes(b'MZclient')
+        file.with_name('EADesktop.exe').write_bytes(b'MZdesktop')
         with patch.object(publisher, 'download') as download:
             self.assertEqual(publisher.ensure_launcher('ea', self.root / 'downloads'), file)
         download.assert_not_called()
@@ -123,6 +124,52 @@ class PublisherLaunchersTest(unittest.TestCase):
         file.parent.mkdir(parents=True)
         file.write_bytes(b'')
         self.assertIsNone(publisher.launcher('ea'))
+
+    def test_ea_versioned_installation_uses_the_launcher_in_its_actual_folder(self):
+        folder = publisher.prefix('ea') / 'drive_c/Program Files/Electronic Arts/EA Desktop/13.805.11.6320/EA Desktop'
+        folder.mkdir(parents=True)
+        (folder / 'EALauncher.exe').write_bytes(b'MZlauncher')
+        self.assertIsNone(publisher.launcher('ea'))
+        (folder / 'EADesktop.exe').write_bytes(b'MZdesktop')
+        with patch.object(publisher, 'download') as download:
+            self.assertEqual(publisher.ensure_launcher('ea', self.root / 'downloads'), folder / 'EALauncher.exe')
+        download.assert_not_called()
+
+    def test_ea_updates_choose_the_newest_complete_numeric_version(self):
+        base = publisher.prefix('ea') / 'drive_c/Program Files/Electronic Arts/EA Desktop'
+        for version in ('13.9.0', '13.10.0', '14.1.0', 'StagedEADesktop'):
+            folder = base / version / 'EA Desktop'
+            folder.mkdir(parents=True)
+            (folder / 'EALauncher.exe').write_bytes(b'MZlauncher')
+            if version != '14.1.0':
+                (folder / 'EADesktop.exe').write_bytes(b'MZdesktop')
+        self.assertEqual(publisher.launcher('ea'), base / '13.10.0/EA Desktop/EALauncher.exe')
+
+    def test_ea_classic_layout_prefers_the_launcher_over_the_desktop_process(self):
+        folder = publisher.prefix('ea') / 'drive_c/Program Files/Electronic Arts/EA Desktop/EA Desktop'
+        folder.mkdir(parents=True)
+        (folder / 'EADesktop.exe').write_bytes(b'MZdesktop')
+        self.assertEqual(publisher.launcher('ea'), folder / 'EADesktop.exe')
+        (folder / 'EALauncher.exe').write_bytes(b'MZlauncher')
+        self.assertEqual(publisher.launcher('ea'), folder / 'EALauncher.exe')
+
+    def test_ea_bootstrap_hands_off_to_the_detected_versioned_client(self):
+        request = self.request(provider='ea')
+        (publisher.prefix('ea') / 'drive_c' / publisher.PROVIDERS['ea']['games']).mkdir(parents=True)
+        folder = publisher.prefix('ea') / 'drive_c/Program Files/Electronic Arts/EA Desktop/13.805.11.6320/EA Desktop'
+        def install(*args, **kwargs):
+            folder.mkdir(parents=True)
+            (folder / 'EALauncher.exe').write_bytes(b'MZlauncher')
+            (folder / 'EADesktop.exe').write_bytes(b'MZdesktop')
+            child = Mock(returncode=0)
+            child.poll.return_value = 0
+            return child
+        with patch.object(publisher, 'download'), patch.object(publisher.subprocess, 'Popen', side_effect=install) as setup, \
+                patch.object(publisher, 'run_client', return_value=0) as client:
+            self.assertEqual(publisher.run('ea', request), 0)
+        self.assertIn('EAX_LAUNCH_CLIENT=0', setup.call_args.args[0])
+        self.assertEqual(client.call_args.args[1], folder / 'EALauncher.exe')
+        self.assertFalse((request / publisher.RESULT).exists())
 
     def test_unrelated_game_is_not_registered_for_the_requested_title(self):
         folder = self.request()
